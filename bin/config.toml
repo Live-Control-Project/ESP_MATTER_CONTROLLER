@@ -1,36 +1,26 @@
 esp_toml_version = 1.0
 
-# This should be a publicly accessible URL of the file server where your firmware binaries are available for download
+multipart = true
+chip = "esp32-c6"
+# Base URL of the file server where the images are available
 firmware_images_url = "https://github.com/Live-Control-Project/ESP_MATTER_CONTROLLER/blob/main/bin/"
 
-# Apps that you support and for which the binaries are available to publish. You can have multiple apps as a comma separated list
-# The launch pad UI will automatically show these Apps in the available apps dropdown
-# There should be a config section per listed App
-supported_apps = ["ESP MATTER CONTROLLER"]
+supported_apps = ["ESP32-H2", "ESP32-S3", "ESP32-C6"]
 
-# Optional: This should be a publicly accessible URL of the application configuration markdown file
-# The markdown file will display the application configuration.
-# It might include details such as the revisions of esp-idf, esp-matter, etc. or any other application configuration
-config_readme_url = "<APP_CONFIG_README_FILE_URL>"
-
-[ESP MATTER CONTROLLER]
-# ESP32 Chipsets for which you have a supported Firmware App. Define a property for each supported chipset in the given format.
-chipsets = ["esp32-h2", "esp32-s3", "esp32-c6"]
-# Optional: Set development board for chip model.
-# developKits.esp32-s3 = ["esp32-s3-box", "esp32-s3-box3"]
-# Configure the name of the binary file
+[ESP32-H2]
+chipsets = ["ESP32-H2"]
 image.esp32-h2 = "esp32h2_ot_rcp.bin"
-image.esp32-s3 = "esp32s3_controller-S2.bin"
+ios_app_url = ""
+android_app_url = ""
+
+[ESP32-S3]
+chipsets = ["ESP32-S3"]
+image.esp32-s3 = "esp32s3_controller.bin"
+ios_app_url = ""
+android_app_url = ""
+
+[ESP32-C6]
+chipsets = ["ESP32-C6"]
 image.esp32-c6 = "esp32c6_controller.bin"
-# Optinal: Configure the name of the image file for development board. Under this configuration, image.esp32-s3 will become invalid..
-# image.esp32-s3-box = "SINGLE_BIN_FOR_ESP32-S3-BOX.bin"
-# image.esp32-s3-box3 = "SINGLE_BIN_FOR_ESP32-S3-BOX3.bin"
-# Optional: A brief introduction to this app.
-# description = "ESP MATTER CONTROLLER"
-# Optional: Phone APP URLs if any for Playstores
-# android_app_url = ""
-# ios_app_url = ""
-# Optional: URL of the Markdown file for additional information about the app
-# readme.text = "<URL to your Markdown file>"
-# Optional: Supported console baudrate for app firmware (default value is 115200)
-# console_baudrate = <SUPPORTED_CONSOLE_BAUDRATE>
+ios_app_url = ""
+android_app_url = ""
