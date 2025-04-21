@@ -1,4 +1,4 @@
-# ESP manner Controller
+# ESP matter Controller
 
 This example creates a Matter Controller using the ESP Matter data model.
 
