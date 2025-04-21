@@ -20,17 +20,21 @@ about pairing and controling an end-device using this example
 See the [docs](https://github.com/espressif/esp-thread-br#hardware-platforms) for more information about the hardware platform.
 
 
-Flash ESP32-H2 RCP
-![alt text](screen/esp-board_h2.jpg?raw=true)
-<a href="https://espressif.github.io/esp-launchpad/?flashConfigURL=https://live-control-project.github.io/bin/config.toml">
+Flash ESP32-H2 RCP <a href="https://espressif.github.io/esp-launchpad/?flashConfigURL=https://live-control-project.github.io/bin/config.toml">
     <img alt="Try it with ESP Launchpad" src="https://espressif.github.io/esp-launchpad/assets/try_with_launchpad.png" width="250" height="70">
 </a>
 
-Flash ESP32-S3 controller
-![alt text](screen/esp-board_s3.jpg?raw=true)
-<a href="https://espressif.github.io/esp-launchpad/?flashConfigURL=https://live-control-project.github.io/bin/config.toml">
+![alt text](screen/esp-board_h2.jpg?raw=true)
+
+
+
+Flash ESP32-S3 controller <a href="https://espressif.github.io/esp-launchpad/?flashConfigURL=https://live-control-project.github.io/bin/config.toml">
     <img alt="Try it with ESP Launchpad" src="https://espressif.github.io/esp-launchpad/assets/try_with_launchpad.png" width="250" height="70">
 </a>
+
+![alt text](screen/esp-board_s3.jpg?raw=true)
+
+
 
 ###  ESP32-C6
 ###  Hardware Platform
