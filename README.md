@@ -59,7 +59,7 @@ idf.py -p <PORT> erase-flash flash monitor
 ```
 ESP32-C6
 ```
-idf.py -D  set-target esp32s3 build
+idf.py -D  set-target esp32c6 build
 idf.py -p <PORT> erase-flash flash monitor
 ```
 
