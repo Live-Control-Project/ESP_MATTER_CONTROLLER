@@ -1,9 +1,6 @@
-#set(SRC_DIRS_LIST ".")
-#set(PRIV_INCLUDE_DIRS_LIST ".")
-
-idf_component_register(SRC_DIRS          "."
+idf_component_register(SRC_DIRS          "." "wifi" "console"
                        INCLUDE_DIRS      "."
-                       PRIV_INCLUDE_DIRS  "." "${CMAKE_CURRENT_SOURCE_DIR}/utils"
+                       PRIV_INCLUDE_DIRS  "." "utils" "wifi" "console"
                        LDFRAGMENTS "linker.lf")
 
 if(CONFIG_SPIFFS_ATTESTATION_TRUST_STORE)

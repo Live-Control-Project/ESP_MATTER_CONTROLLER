@@ -32,6 +32,8 @@ components
 
 project(esp_matter_controller)
 
+# set(ENABLE_MANAGED_COMPONENTS_CACHE 1)
+
 idf_build_set_property(__BUILD_COMPONENT_DEPGRAPH_ENABLED 1)
 
 
