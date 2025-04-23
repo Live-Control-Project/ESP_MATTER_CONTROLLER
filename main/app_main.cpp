@@ -91,6 +91,11 @@ extern "C" void app_main()
     memcpy(sys_settings.wifi.sta.ssid, "Mikro", strlen("Mikro") + 1);
     memcpy(sys_settings.wifi.sta.password, "4455667788", strlen("4455667788") + 1);
 
+    memcpy(sys_settings.mqtt.server, "mqtt://192.168.0.100:1883", strlen("mqtt://192.168.0.100:1883") + 1);
+
+    memcpy(sys_settings.mqtt.user, "guest", strlen("guest") + 1);
+    memcpy(sys_settings.mqtt.password, "guest", strlen("guest") + 1);
+
     // Сохраняем с проверкой ошибок
     ret = settings_save_to_nvs();
     if (ret != ESP_OK)

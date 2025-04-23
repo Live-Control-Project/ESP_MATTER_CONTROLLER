@@ -7,6 +7,11 @@
 #include "sdkconfig.h"
 #include "settings.h"
 #include "bus.h"
+#include "mqtt.h"
+
+#include <time.h>
+#include "esp_sntp.h"
+
 
 static const char *TAG = "WiFi";
 #define APP_NAME "MatterController"
@@ -44,6 +49,37 @@ static char *get_mac_address()
 
     ESP_LOGI(TAG, "MAC address: %s", char_mac_address);
     return char_mac_address;
+}
+static void initialize_sntp(void)
+{
+    ESP_LOGI(TAG, "Initializing SNTP");
+    sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    
+    // Добавьте NTP серверы (можно использовать пул или конкретные серверы)
+    sntp_setservername(0, "pool.ntp.org");           // Основной NTP сервер
+    sntp_setservername(1, "time.nist.gov");          // Резервный NTP сервер
+    sntp_setservername(2, "ru.pool.ntp.org");        // Локальный пул для России
+    
+    sntp_init();
+    
+    // Ждем получения времени (можно сделать с таймаутом)
+    int retry = 0;
+    const int retry_count = 10;
+    while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
+        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    
+    if (retry == retry_count) {
+        ESP_LOGE(TAG, "Failed to get NTP time");
+    } else {
+        // Время получено
+        time_t now;
+        struct tm timeinfo;
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        ESP_LOGI(TAG, "Current time: %s", asctime(&timeinfo));
+    }
 }
 
 static esp_netif_t *iface = NULL;
@@ -125,7 +161,7 @@ static void wifi_handler(void *arg, esp_event_base_t event_base, int32_t event_i
         break;
     case WIFI_EVENT_STA_CONNECTED:
         ESP_LOGI(TAG, "WiFi connected to '%s'", sys_settings.wifi.sta.ssid);
-        sys_settings.wifi.STA_connected = true;
+        sys_settings.wifi.STA_connected = true;         
         break;
     case WIFI_EVENT_STA_DISCONNECTED:
         ESP_LOGI(TAG, "WiFi disconnected, reconnecting...");
@@ -148,6 +184,8 @@ static void ip_handler(void *arg, esp_event_base_t event_base, int32_t event_id,
         ESP_LOGI(TAG, "WiFi got IP address");
         log_ip_info();
         bus_send_event(EVENT_WIFI_UP, NULL, 0);
+        init_wifi_mqtt_handler();
+        initialize_sntp();
         break;
     case IP_EVENT_STA_LOST_IP:
         ESP_LOGI(TAG, "WiFi lost IP address, reconnecting");
@@ -160,37 +198,93 @@ static void ip_handler(void *arg, esp_event_base_t event_base, int32_t event_id,
     }
 }
 
-static esp_err_t init_ap()
+static esp_err_t init_ap(void)
 {
     ESP_LOGI(TAG, "Starting WiFi in access point mode");
 
-    // create default interface
-    iface = esp_netif_create_default_wifi_ap();
+    // Create default AP interface
+    esp_netif_t *iface = esp_netif_create_default_wifi_ap();
+    if (iface == NULL) {
+        ESP_LOGE(TAG, "Failed to create default AP interface");
+        return ESP_FAIL;
+    }
     esp_netif_set_hostname(iface, APP_NAME);
 
+    // Initialize WiFi with default config
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
-    CHECK(esp_wifi_init(&init_cfg));
+    esp_err_t ret = esp_wifi_init(&init_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "WiFi init failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
-    CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_handler, NULL, NULL));
-
-    wifi_config_t wifi_cfg = {0};
-    memcpy(wifi_cfg.ap.ssid, sys_settings.wifi.ap.ssid, sizeof(wifi_cfg.ap.ssid));
-    wifi_cfg.ap.ssid_len = strlen((const char *)sys_settings.wifi.ap.ssid);
-    memcpy(wifi_cfg.ap.password, sys_settings.wifi.ap.password, sizeof(wifi_cfg.ap.password));
-    wifi_cfg.ap.max_connection = sys_settings.wifi.ap.max_connection;
-    wifi_cfg.ap.authmode = sys_settings.wifi.ap.authmode;
+    // Register WiFi event handler
+    ret = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_handler, NULL, NULL);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Event handler register failed: %s", esp_err_to_name(ret));
+        return ret;
+    }
+    if (strlen((const char *)sys_settings.wifi.ap.ssid) == 0) {
+        strcpy((char *)sys_settings.wifi.ap.ssid, "MatterController");
+        strcpy((char *)sys_settings.wifi.ap.password, "");
+        sys_settings.wifi.ap.channel = 6;
+        sys_settings.wifi.ap.authmode = WIFI_AUTH_OPEN;
+        sys_settings.wifi.ap.max_connection = 4;
+        ESP_LOGW(TAG, "Using default AP settings");
+    }
+    wifi_config_t wifi_cfg = {
+        .ap = {
+            .ssid = "",
+            .password = "",
+            .ssid_len = 0,
+            .channel = 0,
+            .authmode = DEFAULT_WIFI_AP_AUTHMODE,
+            .max_connection = 4,
+            .pmf_cfg = {
+                .required = false
+            }
+        }
+    };
+    
+    // Ensure these copies are working
+    strncpy((char *)wifi_cfg.ap.ssid, (const char *)sys_settings.wifi.ap.ssid, 32);
+    wifi_cfg.ap.ssid_len = strlen((const char *)wifi_cfg.ap.ssid);
     wifi_cfg.ap.channel = sys_settings.wifi.ap.channel;
-
+    if (!strlen((const char *)sys_settings.wifi.ap.password))
+    wifi_cfg.ap.authmode = WIFI_AUTH_OPEN;
+        
+    // Only copy password if not open network
+    if (wifi_cfg.ap.authmode != WIFI_AUTH_OPEN) {
+        strncpy((char *)wifi_cfg.ap.password, 
+                (const char *)sys_settings.wifi.ap.password, 
+                64);
+    }
     ESP_LOGI(TAG, "WiFi access point settings:");
     ESP_LOGI(TAG, "--------------------------------------------------");
     ESP_LOGI(TAG, "SSID: %s", wifi_cfg.ap.ssid);
     ESP_LOGI(TAG, "Channel: %d", wifi_cfg.ap.channel);
-    ESP_LOGI(TAG, "Auth mode: %s", wifi_cfg.ap.authmode == WIFI_AUTH_OPEN ? "Open" : "WPA2/PSK");
+    ESP_LOGI(TAG, "Auth mode: %s", (wifi_cfg.ap.authmode == WIFI_AUTH_OPEN) ? "Open" : "WPA2/PSK");
+    ESP_LOGI(TAG, "Max connections: %d", wifi_cfg.ap.max_connection);
     ESP_LOGI(TAG, "--------------------------------------------------");
 
-    CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_cfg));
-    CHECK(esp_wifi_start());
+    // Set WiFi mode and start AP
+    ret = esp_wifi_set_mode(WIFI_MODE_AP);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set WiFi mode: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set WiFi config: %s", esp_err_to_name(ret));
+        return ret;
+    }
+
+    ret = esp_wifi_start();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start WiFi: %s", esp_err_to_name(ret));
+        return ret;
+    }
 
     return ESP_OK;
 }
