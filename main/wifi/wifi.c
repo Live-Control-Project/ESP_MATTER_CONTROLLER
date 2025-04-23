@@ -52,13 +52,11 @@ static char *get_mac_address()
 }
 static void initialize_sntp(void)
 {
-    ESP_LOGI(TAG, "Initializing SNTP");
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    
-    // Добавьте NTP серверы (можно использовать пул или конкретные серверы)
-    sntp_setservername(0, "pool.ntp.org");           // Основной NTP сервер
-    sntp_setservername(1, "time.nist.gov");          // Резервный NTP сервер
-    sntp_setservername(2, "ru.pool.ntp.org");        // Локальный пул для России
+    //ESP_LOGI(TAG, "Initializing SNTP");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");           // Основной NTP сервер
+    esp_sntp_setservername(1, "time.nist.gov");          // Резервный NTP сервер
+    esp_sntp_setservername(2, "ru.pool.ntp.org");        // Локальный пул для России
     
     sntp_init();
     
@@ -66,19 +64,22 @@ static void initialize_sntp(void)
     int retry = 0;
     const int retry_count = 10;
     while (sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && ++retry < retry_count) {
-        ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
+    //    ESP_LOGI(TAG, "Waiting for system time to be set... (%d/%d)", retry, retry_count);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }
     
     if (retry == retry_count) {
         ESP_LOGE(TAG, "Failed to get NTP time");
     } else {
-        // Время получено
-        time_t now;
-        struct tm timeinfo;
-        time(&now);
-        localtime_r(&now, &timeinfo);
-        ESP_LOGI(TAG, "Current time: %s", asctime(&timeinfo));
+    
+       
+    // Время получено
+    time_t now;
+    struct tm timeinfo;
+    time(&now);
+    localtime_r(&now, &timeinfo);
+
+        ESP_LOGI(TAG, "Current GMT time: %s", asctime(&timeinfo));
     }
 }
 
