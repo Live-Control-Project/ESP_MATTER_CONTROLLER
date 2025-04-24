@@ -36,7 +36,6 @@ project(esp_matter_controller)
 
 idf_build_set_property(__BUILD_COMPONENT_DEPGRAPH_ENABLED 1)
 
-
 idf_build_set_property(CXX_COMPILE_OPTIONS "-std=gnu++17;-Os;-DCHIP_HAVE_CONFIG_H;-Wno-overloaded-virtual" APPEND)
 idf_build_set_property(C_COMPILE_OPTIONS "-Os" APPEND)
 

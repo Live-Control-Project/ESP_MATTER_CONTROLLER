@@ -15,12 +15,9 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "mqtt_client.h"
-
+#include "wifi/mqtt_command.h"
+#include "mqtt_command.h"
 #include "settings.h"
-#include "cJSON.h"
-
-//#include <esp_matter.h>
-//#include <esp_matter_core.h>
 
 
 static const char *TAG = "MQTT";
@@ -39,62 +36,6 @@ static void log_error_if_nonzero(const char *message, int error_code)
     if (error_code != 0)
     {
         ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
-    }
-}
-void handle_mqtt_data(esp_mqtt_event_handle_t event) {
-    ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-    
-    // Извлекаем топик и данные
-    char topic[event->topic_len + 1];
-    memcpy(topic, event->topic, event->topic_len);
-    topic[event->topic_len] = '\0';
-    
-    char data[event->data_len + 1];
-    memcpy(data, event->data, event->data_len);
-    data[event->data_len] = '\0';
-    
-    ESP_LOGI(TAG, "TOPIC=%s", topic);
-    ESP_LOGI(TAG, "DATA=%s", data);
-    
-    // Проверяем топик комманд управления
-    if (strstr(topic, "/command/matter") != NULL) {
-        cJSON *json = cJSON_Parse(data);
-        if (json == NULL) {
-            ESP_LOGE(TAG, "Invalid JSON received");
-            const char *error_ptr = cJSON_GetErrorPtr();
-            if (error_ptr != NULL) {
-                ESP_LOGE(TAG, "JSON error before: %s", error_ptr);
-            }
-            return;
-        }
-        
-        // Обрабатываем поле "actions"
-        cJSON *actions = cJSON_GetObjectItem(json, "actions");
-        if (actions && cJSON_IsString(actions)) {
-            const char *action_str = actions->valuestring;
-//            ESP_LOGI(TAG, "Received action: %s", action_str);
-            
-            if (strcmp(action_str, "reboot") == 0) {
-                ESP_LOGW(TAG, "Reboot ESP");
-                vTaskDelay(3000 / portTICK_PERIOD_MS);
-                esp_restart();                
-            }
-            else if (strcmp(action_str, "factoryreset") == 0) {
-                ESP_LOGW(TAG, "Matter factory reset");
-                vTaskDelay(3000 / portTICK_PERIOD_MS);
-            //    factory_reset();
-                
-            }
-           
-            else {
-                ESP_LOGW(TAG, "Unknown action: %s", action_str);
-            }
-        } else {
-            ESP_LOGE(TAG, "No valid 'actions' field in JSON");
-        }
-        
-        
-        cJSON_Delete(json);
     }
 }
 
@@ -125,6 +66,7 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
     client = event->client;
     int msg_id;
 
+    // Выносим объявления переменных в начало функции
     const char *mqttPrefixIN = sys_settings.mqtt.prefix;
     const char *topicIN = "/td/matter/#";
     char completeTopicIN[strlen(mqttPrefixIN) + strlen(topicIN) + 1];
@@ -134,6 +76,11 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
     size_t topic_len = strlen(mqttPrefixIN) + strlen("/command/matter") + 1;
     char commandTopic[topic_len];
     snprintf(commandTopic, topic_len, "%s/command/matter", mqttPrefixIN);
+
+    // Объявляем переменные для MQTT_EVENT_CONNECTED заранее
+    const char *mqttPrefix = sys_settings.mqtt.prefix;
+    const char *topic = "/device/matter/";
+    char completeTopiclwt[strlen(mqttPrefix) + strlen(topic) + strlen(deviceName) + 1];
 
     switch ((esp_mqtt_event_id_t)event_id)
     {
@@ -145,9 +92,6 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
         msg_id = esp_mqtt_client_subscribe(client, commandTopic, 0);
         ESP_LOGI(TAG, "subscribe successful to %s, msg_id=%d", commandTopic, msg_id);
         sys_settings.mqtt.mqtt_connected = true;
-        const char *mqttPrefix = sys_settings.mqtt.prefix;
-        const char *topic = "device/matter/";
-        char completeTopiclwt[strlen(mqttPrefix) + strlen(topic) + strlen(deviceName) + 1];
         strcpy(completeTopiclwt, mqttPrefix);
         strcat(completeTopiclwt, topic);
         strcat(completeTopiclwt, deviceName);
@@ -198,7 +142,7 @@ esp_err_t mqtt_app_start(void)
     // Публикуем доступность устройства
     const char *mqttPrefix = sys_settings.mqtt.prefix;
     const char *topic = "device/matter/";
-
+    
     char completeTopiclwt[strlen(mqttPrefix) + strlen(topic) + strlen(deviceName) + 1];
     strcpy(completeTopiclwt, mqttPrefix);
     strcat(completeTopiclwt, topic);

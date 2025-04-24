@@ -47,6 +47,10 @@ typedef struct {
         char password[32];
         char path[64];
     } mqtt;
+
+    struct {
+        char TLVs[300];        
+    } thread;
 } system_settings_t;
 
 extern system_settings_t sys_settings;
