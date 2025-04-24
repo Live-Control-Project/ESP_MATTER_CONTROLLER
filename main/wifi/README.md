@@ -1,5 +1,6 @@
-## MQTT topic: <preffix>meef/command/matter  
-## Main topic for sending Matter device commands  
+## MQTT topic: 
+### <preffix>meef/command/matter  
+ Main topic for sending Matter device commands  
 
   ## Command to reboot the device  
 ```
