@@ -38,8 +38,33 @@ static void log_error_if_nonzero(const char *message, int error_code)
         ESP_LOGE(TAG, "Last error %s: 0x%x", message, error_code);
     }
 }
+static esp_mqtt_client_handle_t mqtt_client;
+
+esp_err_t mqtt_publish_attribute_data(const char *topic, const char *data)
+{
+    if (!client || !sys_settings.mqtt.mqtt_connected) {
+        ESP_LOGE("MQTT", "Client not ready (init: %d, connected: %d)", 
+            client != NULL, sys_settings.mqtt.mqtt_connected);
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    int msg_id = esp_mqtt_client_publish(client, topic, data, 0, 1, 0);
+    if (msg_id < 0) {
+        ESP_LOGE("MQTT", "Publish failed (error %d)", msg_id);
+        return ESP_FAIL;
+    }
+    
+    ESP_LOGI("MQTT", "Published to [%s]: %s", topic, data);
+    return ESP_OK;
+}
+
+void *get_mqtt_client()
+{
+    return client;
+}
 
 // Публикация статуса датчика
+/*
 void publis_status_mqtt(const char *topic, int EP, const char *deviceData)
 {
     if (client == NULL || !MQTT_CONNEECTED) return;
@@ -58,7 +83,7 @@ void publis_status_mqtt(const char *topic, int EP, const char *deviceData)
         printf("deviceData: %s\n", deviceData);
     }
 }
-
+*/
 void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     ESP_LOGD(TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32 "", base, event_id);
@@ -141,7 +166,7 @@ esp_err_t mqtt_app_start(void)
 
     // Публикуем доступность устройства
     const char *mqttPrefix = sys_settings.mqtt.prefix;
-    const char *topic = "device/matter/";
+    const char *topic = "/device/matter/";
     
     char completeTopiclwt[strlen(mqttPrefix) + strlen(topic) + strlen(deviceName) + 1];
     strcpy(completeTopiclwt, mqttPrefix);

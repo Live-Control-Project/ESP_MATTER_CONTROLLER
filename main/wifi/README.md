@@ -28,7 +28,7 @@
 {  
   "actions": "pairing",   
   "node": 1234,               ## Node/device ID  
-  "metod": "ble-wifi",        ## Pairing method: BLE + WiFi  
+  "method": "ble-wifi",        ## Pairing method: BLE + WiFi  
   "ssid": "Wi-Fi",            ## WiFi network name  
   "pwd": "password",          ## WiFi password  
   "pincode": 20202021,        ## Pairing PIN code  
@@ -41,7 +41,7 @@
 {  
   "actions": "pairing",   
   "node": 1234,               ## Node/device ID  
-  "metod": "ble-thread",      ## Pairing method: BLE + Thread  
+  "method": "ble-thread",      ## Pairing method: BLE + Thread  
   "pincode": 20202021,        ## Pairing PIN code  
   "discriminator": 3840       ## Device discriminator  
 }

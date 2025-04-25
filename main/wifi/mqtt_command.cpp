@@ -13,6 +13,8 @@
 #include <esp_matter_client.h>
 #include <esp_matter_controller_client.h>
 
+#include "matter_callbacks.h"
+
 using namespace esp_matter;
 using namespace esp_matter::controller;
 using namespace chip;
@@ -32,14 +34,14 @@ void hex_string_to_bytes(const char *hex_string, uint8_t *byte_array, size_t byt
 }
 
 // Callback-функция для обработки отчетов атрибутов
-// Новая версия callback-функции, соответствующая ожидаемому типу
+/*
 void OnAttributeData(uint64_t node_id,
                      const chip::app::ConcreteDataAttributePath &path,
                      chip::TLV::TLVReader *data)
 {
     // Обработка данных атрибута
-    ESP_LOGI(TAG, "Received attribute report from node 0x%" PRIx64, node_id);
-    ESP_LOGI(TAG, "Endpoint: %u, Cluster: 0x%" PRIx32 ", Attribute: 0x%" PRIx32,
+    ESP_LOGI("MATTER", "Received attribute report from node 0x%" PRIx64, node_id);
+    ESP_LOGI("MATTER", "Endpoint: %u, Cluster: 0x%" PRIx32 ", Attribute: 0x%" PRIx32,
              path.mEndpointId, path.mClusterId, path.mAttributeId);
 
     // Декодирование данных...
@@ -48,7 +50,7 @@ void OnAttributeData(uint64_t node_id,
         // Ваш код для обработки данных
     }
 }
-
+*/
 extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
 {
     ESP_LOGI(TAG, "MQTT_EVENT_DATA");
