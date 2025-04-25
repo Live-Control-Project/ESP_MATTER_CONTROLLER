@@ -85,7 +85,7 @@ void settings_set_defaults() {
     sys_settings.mqtt.mqtt_connected = false;
     init_string_field(sys_settings.mqtt.server, "", sizeof(sys_settings.mqtt.server));
     sys_settings.mqtt.port = 1883;
-    init_string_field(sys_settings.mqtt.prefix, "homed", sizeof(sys_settings.mqtt.prefix));
+    init_string_field(sys_settings.mqtt.prefix, "meef", sizeof(sys_settings.mqtt.prefix));
     init_string_field(sys_settings.mqtt.user, "", sizeof(sys_settings.mqtt.user));
     init_string_field(sys_settings.mqtt.password, "", sizeof(sys_settings.mqtt.password));
     init_string_field(sys_settings.mqtt.path, "", sizeof(sys_settings.mqtt.path));

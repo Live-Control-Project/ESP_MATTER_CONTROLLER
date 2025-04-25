@@ -2,11 +2,14 @@
 #include "cJSON.h"
 #include "esp_log.h"
 #include "mqtt_client.h"
+#include "mqtt.h"
 
 #include <esp_matter.h>
 #include <esp_matter_core.h>
 #include <esp_matter_controller_pairing_command.h>
 #include <esp_matter_controller_subscribe_command.h>
+#include <esp_matter_controller_write_command.h>
+#include <esp_matter_controller_read_command.h>
 #include <thread_util.h>
 
 #include <esp_matter_controller_utils.h>
@@ -19,8 +22,6 @@ using namespace esp_matter;
 using namespace esp_matter::controller;
 using namespace chip;
 using namespace chip::app::Clusters;
-// using esp_matter::controller::device_mgr::endpoint_entry_t;
-// using esp_matter::controller::device_mgr::matter_device_t;
 
 static const char *TAG = "MQTT";
 
@@ -33,24 +34,6 @@ void hex_string_to_bytes(const char *hex_string, uint8_t *byte_array, size_t byt
     }
 }
 
-// Callback-функция для обработки отчетов атрибутов
-/*
-void OnAttributeData(uint64_t node_id,
-                     const chip::app::ConcreteDataAttributePath &path,
-                     chip::TLV::TLVReader *data)
-{
-    // Обработка данных атрибута
-    ESP_LOGI("MATTER", "Received attribute report from node 0x%" PRIx64, node_id);
-    ESP_LOGI("MATTER", "Endpoint: %u, Cluster: 0x%" PRIx32 ", Attribute: 0x%" PRIx32,
-             path.mEndpointId, path.mClusterId, path.mAttributeId);
-
-    // Декодирование данных...
-    if (data != nullptr)
-    {
-        // Ваш код для обработки данных
-    }
-}
-*/
 extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
 {
     ESP_LOGI(TAG, "MQTT_EVENT_DATA");
@@ -82,8 +65,29 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             return;
         }
 
-        // Process "actions" field
         cJSON *actions = cJSON_GetObjectItem(json, "actions");
+        cJSON *node = cJSON_GetObjectItem(json, "node");
+        cJSON *endpoint = cJSON_GetObjectItem(json, "endpoint");
+        cJSON *cluster = cJSON_GetObjectItem(json, "cluster");
+        cJSON *attr = cJSON_GetObjectItem(json, "attr");
+        cJSON *min_interval = cJSON_GetObjectItem(json, "min_interval");
+        cJSON *max_interval = cJSON_GetObjectItem(json, "max_interval");
+        uint64_t node_id = 0;
+        uint16_t endpoint_id = 0, min_interval_id = 0, max_interval_id = 0;
+        uint32_t cluster_id = 0, attr_id = 0;
+        if (node && cJSON_IsNumber(node))
+            node_id = (uint64_t)cJSON_GetNumberValue(node);
+        if (endpoint && cJSON_IsNumber(endpoint))
+            endpoint_id = (uint16_t)cJSON_GetNumberValue(endpoint);
+        if (cluster && cJSON_IsNumber(cluster))
+            cluster_id = (uint32_t)cJSON_GetNumberValue(cluster);
+        if (attr && cJSON_IsNumber(attr))
+            attr_id = (uint32_t)cJSON_GetNumberValue(attr);
+        if (min_interval && cJSON_IsNumber(min_interval))
+            min_interval_id = (uint16_t)cJSON_GetNumberValue(min_interval);
+        if (max_interval && cJSON_IsNumber(max_interval))
+            max_interval_id = (uint16_t)cJSON_GetNumberValue(max_interval);
+
         if (actions && cJSON_IsString(actions))
         {
             const char *action_str = actions->valuestring;
@@ -114,15 +118,21 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 if (dataset)
                 {
                     strcpy(sys_settings.thread.TLVs, dataset);
-                    // TODO: Publish success message
-                    // esp_mqtt_client_publish(client, eventTopic, "{\"event\":\"initOpenThreadSuccess\"}", 0, 0, 0);
+                    esp_err_t ret = mqtt_publish_data(eventTopic, "{\"event\":\"initOpenThreadSuccess\"}");
+                    if (ret != ESP_OK)
+                    {
+                        ESP_LOGE(TAG, "MQTT publish failed with error: %s", esp_err_to_name(ret));
+                    }
                 }
                 else
                 {
                     ESP_LOGE(TAG, "Failed to generate dataset TLVs.");
                     strcpy(sys_settings.thread.TLVs, "");
-                    // TODO: Publish failure message
-                    // esp_mqtt_client_publish(client, eventTopic, "{\"event\":\"initOpenThreadFail\"}", 0, 0, 0);
+                    esp_err_t ret = mqtt_publish_data(eventTopic, "{\"event\":\"initOpenThreadFail\"}");
+                    if (ret != ESP_OK)
+                    {
+                        ESP_LOGE(TAG, "MQTT publish failed with error: %s", esp_err_to_name(ret));
+                    }
                 }
                 settings_save_to_nvs();
                 ifconfig_up();
@@ -207,6 +217,32 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             else if (strcmp(action_str, "subs-attr") == 0)
             {
                 ESP_LOGW(TAG, "Subscribe command");
+
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) && cluster && cJSON_IsNumber(cluster) && attr && cJSON_IsNumber(attr) && min_interval && cJSON_IsNumber(min_interval) && max_interval && cJSON_IsNumber(max_interval))
+                {
+                    ESP_LOGW(TAG, "Subscribing to node ID: %llu, endpoint ID: %u, cluster ID: %u, attr ID: %u", node_id, endpoint_id, cluster_id, attr_id);
+                    subscribe_command *cmd = chip::Platform::New<subscribe_command>(node_id, endpoint_id, cluster_id, attr_id, SUBSCRIBE_ATTRIBUTE, min_interval_id, max_interval_id, true, OnAttributeData, nullptr, nullptr, nullptr);
+                    if (!cmd)
+                    {
+                        ESP_LOGE(TAG, "Failed to alloc memory for subscribe_command");
+                    }
+                    else
+                    {
+                        chip::DeviceLayer::PlatformMgr().LockChipStack();
+                        cmd->send_command();
+                        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+                    }
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Invalid parameters for subs-attr command");
+                }
+            }
+
+            /*
+            else if (strcmp(action_str, "subs-attr") == 0)
+            {
+                ESP_LOGW(TAG, "Subscribe command");
                 cJSON *node = cJSON_GetObjectItem(json, "node");
                 cJSON *endpoint = cJSON_GetObjectItem(json, "endpoint");
                 cJSON *cluster = cJSON_GetObjectItem(json, "cluster");
@@ -237,23 +273,80 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                         cmd->send_command();
                         chip::DeviceLayer::PlatformMgr().UnlockChipStack();
                     }
-                 
                 }
                 else
                 {
                     ESP_LOGE(TAG, "Invalid parameters for subs-attr command");
                 }
             }
+            else if (strcmp(action_str, "read-attr") == 0)
+            {
+                ESP_LOGW(TAG, "Read attribute command");
+                cJSON *node = cJSON_GetObjectItem(json, "node");
+                cJSON *endpoint = cJSON_GetObjectItem(json, "endpoint");
+                cJSON *cluster = cJSON_GetObjectItem(json, "cluster");
+                cJSON *attr = cJSON_GetObjectItem(json, "attr");
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) &&
+                    cluster && cJSON_IsNumber(cluster) && attr && cJSON_IsNumber(attr))
+                {
+                    uint64_t node_id = (uint64_t)cJSON_GetNumberValue(node);
+                    uint16_t endpoint_id = (uint16_t)cJSON_GetNumberValue(endpoint);
+                    uint32_t cluster_id = (uint32_t)cJSON_GetNumberValue(cluster);
+                    uint32_t attr_id = (uint32_t)cJSON_GetNumberValue(attr);
+
+                    read_command *cmdread = chip::Platform::New<read_command>(node_id, endpoint_id, cluster_id, attr_id, READ_ATTRIBUTE, OnAttributeData, nullptr, nullptr);
+
+                    if (!cmdread)
+                    {
+                        ESP_LOGE(TAG, "Failed to alloc memory for read_command");
+                    }
+                    else
+                    {
+                        chip::DeviceLayer::PlatformMgr().LockChipStack();
+                        cmdread->send_command();
+                        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+                    }
+
+                    ESP_LOGW(TAG, "Reading attribute on node ID: %llu, endpoint ID: %u, cluster ID: %u, attr ID: %u", node_id, endpoint_id, cluster_id, attr_id);
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Invalid parameters for read-attr command");
+                }
+            }
+            else if (strcmp(action_str, "write-attr") == 0)
+            {
+                ESP_LOGW(TAG, "Write attribute command");
+                cJSON *node = cJSON_GetObjectItem(json, "node");
+                cJSON *endpoint = cJSON_GetObjectItem(json, "endpoint");
+                cJSON *cluster = cJSON_GetObjectItem(json, "cluster");
+                cJSON *attr = cJSON_GetObjectItem(json, "attr");
+                cJSON *value = cJSON_GetObjectItem(json, "value");
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) &&
+                    cluster && cJSON_IsNumber(cluster) && attr && cJSON_IsNumber(attr) &&
+                    value)
+                {
+                    uint64_t node_id = (uint64_t)cJSON_GetNumberValue(node);
+                    uint16_t endpoint_id = (uint16_t)cJSON_GetNumberValue(endpoint);
+                    uint32_t cluster_id = (uint32_t)cJSON_GetNumberValue(cluster);
+                    uint32_t attr_id = (uint32_t)cJSON_GetNumberValue(attr);
+                    char *attribute_val_str = value->valuestring;
+
+                    controller::send_write_attr_command(node_id, endpoint_id, cluster_id, attr_id, attribute_val_str);
+                    ESP_LOGW(TAG, "Writing attribute on node ID: %llu, endpoint ID: %u, cluster ID: %u, attr ID: %u", node_id, endpoint_id, cluster_id, attr_id);
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Invalid parameters for write-attr command");
+                }
+            }
+            */
             else
             {
-                ESP_LOGW(TAG, "Unknown action: %s", action_str);
+                ESP_LOGE(TAG, "No valid 'actions' field in JSON");
             }
-        }
-        else
-        {
-            ESP_LOGE(TAG, "No valid 'actions' field in JSON");
-        }
 
-        cJSON_Delete(json);
+            cJSON_Delete(json);
+        }
     }
 }

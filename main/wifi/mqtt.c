@@ -40,7 +40,7 @@ static void log_error_if_nonzero(const char *message, int error_code)
 }
 static esp_mqtt_client_handle_t mqtt_client;
 
-esp_err_t mqtt_publish_attribute_data(const char *topic, const char *data)
+esp_err_t mqtt_publish_data(const char *topic, const char *data)
 {
     if (!client || !sys_settings.mqtt.mqtt_connected) {
         ESP_LOGE("MQTT", "Client not ready (init: %d, connected: %d)", 

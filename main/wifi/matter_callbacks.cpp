@@ -44,7 +44,7 @@ void OnAttributeData(uint64_t node_id,
                 char *json_str = cJSON_PrintUnformatted(root);
                 if (json_str)
                 {
-                    esp_err_t ret = mqtt_publish_attribute_data(topic, json_str);
+                    esp_err_t ret = mqtt_publish_data(topic, json_str);
                     if (ret != ESP_OK)
                     {
                         ESP_LOGE(TAG, "MQTT publish failed with error: %s", esp_err_to_name(ret));
