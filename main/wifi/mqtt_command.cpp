@@ -10,6 +10,8 @@
 #include <esp_matter_controller_subscribe_command.h>
 #include <esp_matter_controller_write_command.h>
 #include <esp_matter_controller_read_command.h>
+#include <esp_matter_controller_cluster_command.h>
+
 #include <thread_util.h>
 
 #include <esp_matter_controller_utils.h>
@@ -47,8 +49,8 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
     memcpy(data, event->data, event->data_len);
     data[event->data_len] = '\0';
 
-    ESP_LOGI(TAG, "TOPIC=%s", topic);
-    ESP_LOGI(TAG, "DATA=%s", data);
+    //    ESP_LOGI(TAG, "TOPIC=%s", topic);
+    //    ESP_LOGI(TAG, "DATA=%s", data);
 
     // Check for Matter command topic
     if (strstr(topic, "/command/matter") != NULL)
@@ -72,9 +74,20 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
         cJSON *attr = cJSON_GetObjectItem(json, "attr");
         cJSON *min_interval = cJSON_GetObjectItem(json, "min_interval");
         cJSON *max_interval = cJSON_GetObjectItem(json, "max_interval");
+        cJSON *pincode = cJSON_GetObjectItem(json, "pincode");
+        cJSON *disc = cJSON_GetObjectItem(json, "disc");
+        cJSON *ssid = cJSON_GetObjectItem(json, "ssid");
+        cJSON *pwd = cJSON_GetObjectItem(json, "pwd");
+        cJSON *payload = cJSON_GetObjectItem(json, "payload");
+        cJSON *command = cJSON_GetObjectItem(json, "command");
+        cJSON *attribute_val = cJSON_GetObjectItem(json, "attribute_val");
+
         uint64_t node_id = 0;
-        uint16_t endpoint_id = 0, min_interval_id = 0, max_interval_id = 0;
-        uint32_t cluster_id = 0, attr_id = 0;
+        uint16_t endpoint_id = 0, min_interval_id = 0, max_interval_id = 0, disc_id = 0;
+        uint32_t cluster_id = 0, attr_id = 0, pincode_id = 0, command_id = 0;
+        const char *ssid_str = "", *pwd_str = "", *payload_str = "";
+        char *attribute_val_str = "";
+
         if (node && cJSON_IsNumber(node))
             node_id = (uint64_t)cJSON_GetNumberValue(node);
         if (endpoint && cJSON_IsNumber(endpoint))
@@ -87,6 +100,20 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             min_interval_id = (uint16_t)cJSON_GetNumberValue(min_interval);
         if (max_interval && cJSON_IsNumber(max_interval))
             max_interval_id = (uint16_t)cJSON_GetNumberValue(max_interval);
+        if (pincode && cJSON_IsNumber(pincode))
+            pincode_id = (uint32_t)cJSON_GetNumberValue(pincode);
+        if (disc && cJSON_IsNumber(disc))
+            disc_id = (uint16_t)cJSON_GetNumberValue(disc);
+        if (ssid && cJSON_IsString(ssid))
+            ssid_str = ssid->valuestring;
+        if (pwd && cJSON_IsNumber(pwd))
+            pwd_str = pwd->valuestring;
+        if (payload && cJSON_IsString(payload))
+            payload_str = payload->valuestring;
+        if (command && cJSON_IsNumber(command))
+            command_id = (uint32_t)cJSON_GetNumberValue(command);
+        if (attribute_val && cJSON_IsString(attribute_val))
+            strcpy(attribute_val_str, attribute_val->valuestring);
 
         if (actions && cJSON_IsString(actions))
         {
@@ -151,8 +178,18 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                     {
                         const char *method_str = method->valuestring;
                         ESP_LOGW(TAG, "Pairing method: %s", method_str);
-                        if (strcmp(method_str, "ble-wifi") == 0)
+                        // Pairing method onnetwork
+                        if (strcmp(method_str, "onnetwork") == 0)
                         {
+                            if (node && cJSON_IsNumber(node) && pincode && cJSON_IsNumber(pincode))
+                                controller::pairing_on_network(node_id, pincode_id);
+                        }
+                        // Pairing method ble-wifi
+                        else if (strcmp(method_str, "ble-wifi") == 0)
+                        {
+                            if (node && cJSON_IsNumber(node) && pincode && cJSON_IsNumber(pincode) && disc && cJSON_IsNumber(disc))
+                                controller::pairing_ble_wifi(node_id, pincode_id, disc_id, ssid_str, pwd_str);
+                            /*
                             cJSON *pincode = cJSON_GetObjectItem(json, "pincode");
                             if (!pincode || !cJSON_IsNumber(pincode))
                             {
@@ -186,9 +223,20 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                             }
                             const char *pwd_str = pwd->valuestring;
                             esp_matter::controller::pairing_ble_wifi(node_id, pincode_id, disc_id, ssid_str, pwd_str);
+                            */
                         }
+                        // Pairing method ble-thread
                         else if (strcmp(method_str, "ble-thread") == 0)
                         {
+                            if (node && cJSON_IsNumber(node) && pincode && cJSON_IsNumber(pincode) && disc && cJSON_IsNumber(disc))
+                            {
+                                const char *dataset = sys_settings.thread.TLVs;
+                                size_t dataset_len = strlen(dataset) / 2;
+                                uint8_t dataset_tlvs[dataset_len];
+                                hex_string_to_bytes(dataset, dataset_tlvs, dataset_len);
+                                controller::pairing_ble_thread(node_id, pincode_id, disc_id, dataset_tlvs, dataset_len);
+                            }
+                            /*
                             cJSON *pincode = cJSON_GetObjectItem(json, "pincode");
                             if (!pincode || !cJSON_IsNumber(pincode))
                             {
@@ -210,6 +258,44 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                             uint8_t dataset_tlvs[dataset_len];
                             hex_string_to_bytes(dataset, dataset_tlvs, dataset_len);
                             esp_matter::controller::pairing_ble_thread(node_id, pincode_id, disc_id, dataset_tlvs, dataset_len);
+                            */
+                        }
+                        else if (strcmp(method_str, "code") == 0)
+                        {
+                            if (node && cJSON_IsNumber(node) && payload && cJSON_IsString(payload))
+                            {
+                                controller::pairing_code(node_id, payload_str);
+                            }
+                        }
+                        else if (strcmp(method_str, "code-thread") == 0)
+                        {
+                            if (node && cJSON_IsNumber(node) && payload && cJSON_IsString(payload))
+                            {
+                                const char *dataset = sys_settings.thread.TLVs;
+                                size_t dataset_len = strlen(dataset) / 2;
+                                uint8_t dataset_tlvs[dataset_len];
+                                hex_string_to_bytes(dataset, dataset_tlvs, dataset_len);
+                                controller::pairing_code_thread(node_id, payload_str, dataset_tlvs, dataset_len);
+                            }
+                        }
+                        else if (strcmp(method_str, "code-wifi") == 0)
+                        {
+                            if (node && cJSON_IsNumber(node) && payload && cJSON_IsString(payload))
+                            {
+                                controller::pairing_code_wifi(node_id, ssid_str, pwd_str, payload_str);
+                            }
+                        }
+                        else if (strcmp(method_str, "code-wifi-thread") == 0)
+                        {
+                            if (node && cJSON_IsNumber(node) && payload && cJSON_IsString(payload))
+                            {
+                                const char *dataset = sys_settings.thread.TLVs;
+                                size_t dataset_len = strlen(dataset) / 2;
+                                uint8_t dataset_tlvs[dataset_len];
+                                hex_string_to_bytes(dataset, dataset_tlvs, dataset_len);
+                                controller::pairing_code_wifi_thread(node_id, ssid_str, pwd_str, payload_str, dataset_tlvs,
+                                                                     dataset_len);
+                            }
                         }
                     }
                 }
@@ -236,6 +322,54 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 else
                 {
                     ESP_LOGE(TAG, "Invalid parameters for subs-attr command");
+                }
+            }
+            else if (strcmp(action_str, "read-attr") == 0)
+            {
+                ESP_LOGW(TAG, "Read attribute command");
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) && cluster && cJSON_IsNumber(cluster) && attr && cJSON_IsNumber(attr))
+                {
+                    read_command *cmdread = chip::Platform::New<read_command>(node_id, endpoint_id, cluster_id, attr_id, READ_ATTRIBUTE, OnAttributeData, nullptr, nullptr);
+                    if (!cmdread)
+                    {
+                        ESP_LOGE(TAG, "Failed to alloc memory for read_command");
+                    }
+                    else
+                    {
+                        chip::DeviceLayer::PlatformMgr().LockChipStack();
+                        cmdread->send_command();
+                        chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+                    }
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Invalid parameters for read-attr command");
+                }
+            }
+            else if (strcmp(action_str, "write-attr") == 0)
+            {
+                ESP_LOGW(TAG, "Write attribute command");
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) && cluster && cJSON_IsNumber(cluster) && attr && cJSON_IsNumber(attr) && attribute_val && cJSON_IsString(attribute_val))
+                {
+                    ESP_LOGW(TAG, "Writing attribute on node ID: %llu, endpoint ID: %u, cluster ID: %u, attr ID: %u", node_id, endpoint_id, cluster_id, attr_id);
+                    controller::send_write_attr_command(node_id, endpoint_id, cluster_id, attr_id, attribute_val_str);
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Invalid parameters for write-attr command");
+                }
+            }
+            else if (strcmp(action_str, "invoke-cmd") == 0)
+            {
+                ESP_LOGW(TAG, "Invoke command");
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) && cluster && cJSON_IsNumber(cluster) && command && cJSON_IsNumber(command))
+                {
+                    ESP_LOGW(TAG, "Invoking command on node ID: %llu, endpoint ID: %u, cluster ID: %u, command ID: %u", node_id, endpoint_id, cluster_id, command_id);
+                    controller::send_invoke_cluster_command(node_id, endpoint_id, cluster_id, command_id, NULL);
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Invalid parameters for invoke-cmd command");
                 }
             }
 
