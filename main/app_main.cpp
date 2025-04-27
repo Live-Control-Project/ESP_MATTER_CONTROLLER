@@ -33,6 +33,8 @@
 #include "wifi/bus.h"
 #include "wifi/wifi.h"
 
+#include "console/console.h"
+
 static const char *TAG = "app_main";
 uint16_t switch_endpoint_id = 0;
 
@@ -86,18 +88,22 @@ extern "C" void app_main()
     {
         ESP_LOGW("SETTINGS", "No saved settings, using defaults");
     }
+
+    console_init();
+
     // TODO: Настройки WiFi пока прибиты гвоздями
-    sys_settings.wifi.mode = WIFI_MODE_STA;
-    memcpy(sys_settings.wifi.sta.ssid, "Mikro", strlen("Mikro") + 1);
-    memcpy(sys_settings.wifi.sta.password, "4455667788", strlen("4455667788") + 1);
+    // sys_settings.wifi.mode = WIFI_MODE_STA;
+    // memcpy(sys_settings.wifi.sta.ssid, "Mikro", strlen("Mikro") + 1);
+    // memcpy(sys_settings.wifi.sta.password, "4455667788", strlen("4455667788") + 1);
 
     // memcpy(sys_settings.mqtt.server, "mqtt://live-control.com:1883", strlen("mqtt://live-control.com:1883") + 1);
-    memcpy(sys_settings.mqtt.server, "mqtt://192.168.0.100:1883", strlen("mqtt://192.168.0.100:1883") + 1);
+    // memcpy(sys_settings.mqtt.server, "mqtt://192.168.0.100:1883", strlen("mqtt://192.168.0.100:1883") + 1);
 
-    memcpy(sys_settings.mqtt.user, "guest", strlen("guest") + 1);
-    memcpy(sys_settings.mqtt.password, "guest", strlen("guest") + 1);
+    // memcpy(sys_settings.mqtt.user, "guest", strlen("guest") + 1);
+    // memcpy(sys_settings.mqtt.password, "guest", strlen("guest") + 1);
 
     // Сохраняем с проверкой ошибок
+    /*
     ret = settings_save_to_nvs();
     if (ret != ESP_OK)
     {
@@ -107,6 +113,7 @@ extern "C" void app_main()
     {
         ESP_LOGI("SETTINGS", "Settings saved successfully!");
     }
+        */
     // Инициализация шины
     ret = bus_init();
     if (ret != ESP_OK)
@@ -116,11 +123,14 @@ extern "C" void app_main()
     }
 
     // Инициализация Wi-Fi
-    ret = wifi_init();
-    if (ret != ESP_OK)
+    if (strncmp((const char *)sys_settings.wifi.sta.ssid, "MyWiFi", sizeof(sys_settings.wifi.sta.ssid)) != 0)
     {
-        ESP_LOGE("MAIN", "Wi-Fi init failed: %s", esp_err_to_name(ret));
-        return;
+        ret = wifi_init();
+        if (ret != ESP_OK)
+        {
+            ESP_LOGE("MAIN", "Wi-Fi init failed: %s", esp_err_to_name(ret));
+            return;
+        }
     }
 
 #if CONFIG_ENABLE_CHIP_SHELL

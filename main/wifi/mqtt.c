@@ -124,6 +124,10 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+        if (mqtt_client != NULL) {
+            esp_mqtt_client_destroy(mqtt_client);
+            mqtt_client = NULL;
+        }
         MQTT_CONNEECTED = 0;
         sys_settings.mqtt.mqtt_connected = false;
         break;
@@ -229,6 +233,7 @@ void Publisher_Task(void *params)
 }
 void init_wifi_mqtt_handler()
 {
+    if (strcmp(sys_settings.mqtt.server, "") != 0){
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL));
     
@@ -238,5 +243,6 @@ void init_wifi_mqtt_handler()
         mqtt_app_start();
     //    xTaskCreate(Publisher_Task, "Publisher_Task", 1024 * 5, NULL, 5, NULL);
     }
+}
 }
 
