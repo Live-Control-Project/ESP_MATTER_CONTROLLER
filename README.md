@@ -66,16 +66,16 @@ idf.py -p <PORT> erase-flash flash monitor
 
 ### Using
 
-- Connect the controller to Wi-Fi network with the device console
+- Connect controller to Wi-Fi network with device console
 
 ```
 wifi {ssid} {password}
 ```
 
-- Connect the controller to Wi-Fi network with the device console
+- Connect controller to MQTT network with device console
 
 ```
-mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_password}
+mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_password}
 ```
 
 ### MQTT API
@@ -98,7 +98,7 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Initializing a new Thread network dataset and commit it as the active one
+- Initializing a new Thread network dataset and commit it as active one
 
 ```
 {
@@ -106,7 +106,7 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Getting the operational dataset TLV-encoded string. The `<dataset_tlvs>` will be printed.
+- Getting operational dataset TLV-encoded string.
 
 ```
 
@@ -114,13 +114,13 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 
 ## MQTT comand pairing
 
-- Pairing the ble-wifi end-device
+- Pairing ble-wifi
 
 ```
 {
   "actions": "pairing",
   "node": 1234,               ## Node/device ID
-  "method": "ble-wifi",        ## Pairing method: BLE + WiFi
+  "method": "ble-wifi",       ## Pairing method: BLE + WiFi
   "ssid": "Wi-Fi",            ## WiFi network name
   "pwd": "password",          ## WiFi password
   "pincode": 20202021,        ## Pairing PIN code
@@ -128,7 +128,7 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Pairing the ble-wifi end-device
+- Pairing ble-wifi
 
 ```
 {
@@ -140,7 +140,7 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Pairing the onnetwork end-device
+- Pairing onnetwork
 
 ```
 {
@@ -151,29 +151,29 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Pairing the code end-device
+- Pairing code
 
 ```
 {
   "actions":"pairing",
   "node":1234,
   "method":"code",
-  "payload":""
+  "payload":"MT:Y.K9042C00KA0648G00"
 }
 ```
 
-- Pairing the code-thread end-device
+- Pairing code-thread
 
 ```
 {
   "actions":"pairing",
   "node":1234,
   "method":"code-thread",
-  "payload":""
+  "payload":"setup_payload"
 }
 ```
 
-- Pairing the code-wifi end-device
+- Pairing code-wifi
 
 ```
 {
@@ -182,11 +182,11 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
   "method":"code-wifi",
   "ssid": "Wi-Fi",
   "pwd": "password",
-  "payload":""
+  "payload":"MT:Y.K9042C00KA0648G00"
 }
 ```
 
-- Pairing the code-wifi-thread end-device
+- Pairing code-wifi-thread
 
 ```
 {
@@ -195,13 +195,13 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
   "method":"code-wifi-thread",
   "ssid": "Wi-Fi",
   "pwd": "password",
-  "payload":""
+  "payload":"setup_payload"
 }
 ```
 
 ## MQTT control comand
 
-- Control the end-device (On/Off cluster Toggle command)
+- Control end-device (On/Off cluster Toggle command)
 
 ```
 {
@@ -213,7 +213,7 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Read attribute end-device
+- Read attribute
 
 ```
 {
@@ -225,7 +225,7 @@ mqtt {mqtt://mqtt_server.com:1883} {prefix} -u {mqtt_user_name} -p {mqtt_user_pa
 }
 ```
 
-- Write attribute end-device (See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information)
+- Write attribute (See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information)
 
 ```
 {
