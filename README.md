@@ -209,7 +209,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
   "node": 1234,
   "endpoint": 1,
   "cluster": 6,
-  "command": 2
+  "val": 2
 }
 ```
 

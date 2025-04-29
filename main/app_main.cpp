@@ -77,6 +77,7 @@ extern "C" void app_main()
 
     /* Initialize the ESP NVS layer */
     esp_err_t ret = nvs_flash_init();
+    //-----------------------------------------------------------------------------//
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
     {
         ESP_ERROR_CHECK(nvs_flash_erase());
@@ -91,19 +92,7 @@ extern "C" void app_main()
 
     console_init();
 
-    // TODO: Настройки WiFi пока прибиты гвоздями
-    // sys_settings.wifi.mode = WIFI_MODE_STA;
-    // memcpy(sys_settings.wifi.sta.ssid, "Mikro", strlen("Mikro") + 1);
-    // memcpy(sys_settings.wifi.sta.password, "4455667788", strlen("4455667788") + 1);
-
-    // memcpy(sys_settings.mqtt.server, "mqtt://live-control.com:1883", strlen("mqtt://live-control.com:1883") + 1);
-    // memcpy(sys_settings.mqtt.server, "mqtt://192.168.0.100:1883", strlen("mqtt://192.168.0.100:1883") + 1);
-
-    // memcpy(sys_settings.mqtt.user, "guest", strlen("guest") + 1);
-    // memcpy(sys_settings.mqtt.password, "guest", strlen("guest") + 1);
-
     // Сохраняем с проверкой ошибок
-    /*
     ret = settings_save_to_nvs();
     if (ret != ESP_OK)
     {
@@ -113,7 +102,7 @@ extern "C" void app_main()
     {
         ESP_LOGI("SETTINGS", "Settings saved successfully!");
     }
-        */
+
     // Инициализация шины
     ret = bus_init();
     if (ret != ESP_OK)
@@ -132,7 +121,7 @@ extern "C" void app_main()
             return;
         }
     }
-
+//-----------------------------------------------------------------------------//
 #if CONFIG_ENABLE_CHIP_SHELL
     esp_matter::console::diagnostics_register_commands();
     esp_matter::console::wifi_register_commands();
@@ -146,6 +135,17 @@ extern "C" void app_main()
 #endif // CONFIG_OPENTHREAD_BORDER_ROUTER
 #endif // CONFIG_ENABLE_CHIP_SHELL
 #ifdef CONFIG_OPENTHREAD_BORDER_ROUTER
+#ifdef CONFIG_AUTO_UPDATE_RCP
+    esp_vfs_spiffs_conf_t rcp_fw_conf = {
+        .base_path = "/rcp_fw", .partition_label = "rcp_fw", .max_files = 10, .format_if_mount_failed = false};
+    if (ESP_OK != esp_vfs_spiffs_register(&rcp_fw_conf))
+    {
+        ESP_LOGE(TAG, "Failed to mount rcp firmware storage");
+        return;
+    }
+    esp_rcp_update_config_t rcp_update_config = ESP_OPENTHREAD_RCP_UPDATE_CONFIG();
+    openthread_init_br_rcp(&rcp_update_config);
+#endif
     /* Set OpenThread platform config */
     esp_openthread_platform_config_t config = {
         .radio_config = ESP_OPENTHREAD_DEFAULT_RADIO_CONFIG(),

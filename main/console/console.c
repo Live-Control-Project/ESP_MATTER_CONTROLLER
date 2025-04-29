@@ -36,50 +36,44 @@ static int wifi_connect(int argc, char **argv) {
         return 1;
     }
 
+    
+strncpy((char *)sys_settings.wifi.sta.ssid, wifi_args.ssid->sval[0], sizeof(sys_settings.wifi.sta.ssid) - 1);
+sys_settings.wifi.sta.ssid[sizeof(sys_settings.wifi.sta.ssid) - 1] = '\0';
 
-   memcpy(sys_settings.wifi.sta.ssid, wifi_args.ssid->sval[0], sizeof(sys_settings.wifi.sta.ssid));
-   memcpy(sys_settings.wifi.sta.password, wifi_args.password->sval[0], sizeof(sys_settings.wifi.sta.password));
-   sys_settings.wifi.mode = WIFI_MODE_STA;
+strncpy((char *)sys_settings.wifi.sta.password, wifi_args.password->sval[0], sizeof(sys_settings.wifi.sta.password) - 1);
+sys_settings.wifi.sta.password[sizeof(sys_settings.wifi.sta.password) - 1] = '\0';
 
-esp_err_t ret = ESP_OK;
-ret = settings_save_to_nvs();
-if (ret != ESP_OK)
-{
-    ESP_LOGE("SETTINGS", "Save failed: %s", esp_err_to_name(ret));
-}
-else
-{
-    ESP_LOGI("SETTINGS", "Settings saved successfully!");
-}
-    ESP_LOGI(TAG, "Подключаемся к Wi-Fi SSID:%s", sys_settings.wifi.sta.ssid);
-  
-//    ESP_LOGW(TAG, "Reboot ESP");
-//    vTaskDelay(3000 / portTICK_PERIOD_MS);
-//    esp_restart();
+    sys_settings.wifi.mode = WIFI_MODE_STA;
+
+    // Сохранение настроек с единой обработкой ошибок
+    esp_err_t ret = settings_save_to_nvs();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Save failed: %s", esp_err_to_name(ret));
+        return 1;
+    }
+    ESP_LOGI(TAG, "Settings saved successfully!");
+
+    ESP_LOGI(TAG, "Connecting to Wi-Fi SSID: %s", sys_settings.wifi.sta.ssid);
 
     wifi_config_t wifi_config = {
         .sta = {
             .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
-    strncpy(
-        (char *)wifi_config.sta.ssid, 
-        (const char *)sys_settings.wifi.sta.ssid, 
-        sizeof(wifi_config.sta.ssid) - 1
-    );
     
-    strncpy(
-        (char *)wifi_config.sta.password, 
-        (const char *)sys_settings.wifi.sta.password, 
-        sizeof(wifi_config.sta.password) - 1
-    );
+  
+strncpy((char *)wifi_config.sta.ssid, (const char *)sys_settings.wifi.sta.ssid, sizeof(wifi_config.sta.ssid) - 1);
+wifi_config.sta.ssid[sizeof(wifi_config.sta.ssid) - 1] = '\0';
+
+strncpy((char *)wifi_config.sta.password, (const char *)sys_settings.wifi.sta.password, sizeof(wifi_config.sta.password) - 1);
+wifi_config.sta.password[sizeof(wifi_config.sta.password) - 1] = '\0';
+
+  
+    ESP_ERROR_CHECK(esp_wifi_disconnect());
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
-    
-    ESP_ERROR_CHECK(esp_wifi_disconnect());
     ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_connect());
-
 
     return 0;
 }
@@ -112,13 +106,12 @@ static int mqtt_connect(int argc, char **argv) {
         sys_settings.mqtt.prefix[sizeof(sys_settings.mqtt.prefix) - 1] = '\0';
     }
 
-    // Сохранение настроек
+    // Сохранение настроек с единой обработкой ошибок
     esp_err_t ret = settings_save_to_nvs();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Save failed: %s", esp_err_to_name(ret));
         return 1;
     }
-    
     ESP_LOGI(TAG, "Settings saved successfully!");
 
     // Переподключение MQTT
@@ -127,7 +120,7 @@ static int mqtt_connect(int argc, char **argv) {
         mqtt_client = NULL;
     }
 
-    ESP_LOGI(TAG, "Подключаемся к MQTT брокеру %s", sys_settings.mqtt.server);
+    ESP_LOGI(TAG, "Connecting to MQTT broker: %s", sys_settings.mqtt.server);
     init_wifi_mqtt_handler();
     
     return 0;
@@ -135,8 +128,8 @@ static int mqtt_connect(int argc, char **argv) {
 
 /* Регистрация команд */
 static void register_wifi_connect(void) {
-    wifi_args.ssid = arg_str1(NULL, NULL, "<ssid>", "SSID точки доступа");
-    wifi_args.password = arg_str1(NULL, NULL, "<password>", "Пароль точки доступа");
+    wifi_args.ssid = arg_str1(NULL, NULL, "<ssid>", "SSID of the access point");
+    wifi_args.password = arg_str1(NULL, NULL, "<password>", "Password for the access point");
     wifi_args.end = arg_end(2);
 
     const esp_console_cmd_t cmd = {
@@ -151,15 +144,15 @@ static void register_wifi_connect(void) {
 }
 
 static void register_mqtt_connect(void) {
-    mqtt_args.uri = arg_str1(NULL, NULL, "<uri>", "URI MQTT брокера");
-    mqtt_args.prefix = arg_str0(NULL, NULL, "<prefix>", "ID клиента");
-    mqtt_args.username = arg_str0("u", "username", "<username>", "Имя пользователя");
-    mqtt_args.password = arg_str0("p", "password", "<password>", "Пароль");
+    mqtt_args.uri = arg_str1(NULL, NULL, "<uri>", "MQTT broker URI");
+    mqtt_args.prefix = arg_str0(NULL, NULL, "<prefix>", "Client ID prefix");
+    mqtt_args.username = arg_str0("u", "username", "<username>", "Username for authentication");
+    mqtt_args.password = arg_str0("p", "password", "<password>", "Password for authentication");
     mqtt_args.end = arg_end(4);
 
     const esp_console_cmd_t cmd = {
         .command = "mqtt",
-        .help = "Connect to MQTT",
+        .help = "Connect to MQTT broker",
         .hint = NULL,
         .func = &mqtt_connect,
         .argtable = &mqtt_args
@@ -169,15 +162,15 @@ static void register_mqtt_connect(void) {
 }
 
 void console_init(void) {
-    esp_console_config_t console_config = {
-        .max_cmdline_args = 8,
-        .max_cmdline_length = 256,
-    };
-    ESP_ERROR_CHECK(esp_console_init(&console_config));
+//    esp_console_config_t console_config_ = {
+//        .max_cmdline_args = 8,
+//        .max_cmdline_length = 256,
+//    };
+//    ESP_ERROR_CHECK(esp_console_init(&console_config_));
 
     /* Регистрируем команды */
     register_wifi_connect();
     register_mqtt_connect();
 
-    ESP_LOGI(TAG, "Консольные команды инициализированы");
+    ESP_LOGI(TAG, "Console commands initialized");
 }

@@ -79,7 +79,7 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
         cJSON *ssid = cJSON_GetObjectItem(json, "ssid");
         cJSON *pwd = cJSON_GetObjectItem(json, "pwd");
         cJSON *payload = cJSON_GetObjectItem(json, "payload");
-        cJSON *command = cJSON_GetObjectItem(json, "command");
+        cJSON *val = cJSON_GetObjectItem(json, "val");
         cJSON *attribute_val = cJSON_GetObjectItem(json, "attribute_val");
 
         uint64_t node_id = 0;
@@ -110,8 +110,8 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             pwd_str = pwd->valuestring;
         if (payload && cJSON_IsString(payload))
             payload_str = payload->valuestring;
-        if (command && cJSON_IsNumber(command))
-            command_id = (uint32_t)cJSON_GetNumberValue(command);
+        if (val && cJSON_IsNumber(val))
+            command_id = (uint32_t)cJSON_GetNumberValue(val);
         if (attribute_val && cJSON_IsString(attribute_val))
             strcpy(attribute_val_str, attribute_val->valuestring);
 
@@ -228,6 +228,7 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                         // Pairing method ble-thread
                         else if (strcmp(method_str, "ble-thread") == 0)
                         {
+                            /*
                             if (node && cJSON_IsNumber(node) && pincode && cJSON_IsNumber(pincode) && disc && cJSON_IsNumber(disc))
                             {
                                 const char *dataset = sys_settings.thread.TLVs;
@@ -236,7 +237,8 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                                 hex_string_to_bytes(dataset, dataset_tlvs, dataset_len);
                                 controller::pairing_ble_thread(node_id, pincode_id, disc_id, dataset_tlvs, dataset_len);
                             }
-                            /*
+                                */
+
                             cJSON *pincode = cJSON_GetObjectItem(json, "pincode");
                             if (!pincode || !cJSON_IsNumber(pincode))
                             {
@@ -258,7 +260,6 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                             uint8_t dataset_tlvs[dataset_len];
                             hex_string_to_bytes(dataset, dataset_tlvs, dataset_len);
                             esp_matter::controller::pairing_ble_thread(node_id, pincode_id, disc_id, dataset_tlvs, dataset_len);
-                            */
                         }
                         else if (strcmp(method_str, "code") == 0)
                         {
@@ -362,7 +363,7 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             else if (strcmp(action_str, "invoke-cmd") == 0)
             {
                 ESP_LOGW(TAG, "Invoke command");
-                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) && cluster && cJSON_IsNumber(cluster) && command && cJSON_IsNumber(command))
+                if (node && cJSON_IsNumber(node) && endpoint && cJSON_IsNumber(endpoint) && cluster && cJSON_IsNumber(cluster) && val && cJSON_IsNumber(val))
                 {
                     ESP_LOGW(TAG, "Invoking command on node ID: %llu, endpoint ID: %u, cluster ID: %u, command ID: %u", node_id, endpoint_id, cluster_id, command_id);
                     controller::send_invoke_cluster_command(node_id, endpoint_id, cluster_id, command_id, NULL);
