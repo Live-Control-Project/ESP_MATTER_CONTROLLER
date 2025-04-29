@@ -114,102 +114,51 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 
 ## MQTT comand pairing
 
-- Pairing ble-wifi
-
 ```
 {
   "actions": "pairing",
-  "node": 1234,               ## Node/device ID
-  "method": "ble-wifi",       ## Pairing method: BLE + WiFi
-  "ssid": "Wi-Fi",            ## WiFi network name
-  "pwd": "password",          ## WiFi password
-  "pincode": 20202021,        ## Pairing PIN code
-  "discriminator": 3840       ## Device discriminator
+  "payload": <payloadStr>
 }
 ```
 
-- Pairing ble-wifi
+# payloadStr
 
 ```
-{
-  "actions":"pairing",
-  "node":1234,
-  "method":"ble-thread",
-  "pincode":20202021,
-  "discriminator":3840
-}
+ble-thread <node_id> <dataset_tlvs> <pincode> <discriminator>
 ```
 
-- Pairing onnetwork
-
 ```
-{
-  "actions":"pairing",
-  "node":1234,
-  "method":"onnetwork",
-  "pincode":20202021
-}
+ble-wifi <node_id> <ssid> <password> <pincode> <discriminator>
 ```
 
-- Pairing code
-
 ```
-{
-  "actions":"pairing",
-  "node":1234,
-  "method":"code",
-  "payload":"MT:Y.K9042C00KA0648G00"
-}
+onnetwork <node_id> <setup_passcode>
 ```
 
-- Pairing code-thread
-
 ```
-{
-  "actions":"pairing",
-  "node":1234,
-  "method":"code-thread",
-  "payload":"setup_payload"
-}
+code <node_id> <setup_payload>
 ```
 
-- Pairing code-wifi
-
 ```
-{
-  "actions":"pairing",
-  "node":1234,
-  "method":"code-wifi",
-  "ssid": "Wi-Fi",
-  "pwd": "password",
-  "payload":"MT:Y.K9042C00KA0648G00"
-}
+code-wifi <node_id> <ssid> <passphrase> <setup_payload>
 ```
 
-- Pairing code-wifi-thread
+```
+code-thread <node_id> <operationalDataset> <setup_payload>
+```
 
 ```
-{
-  "actions":"pairing",
-  "node":1234,
-  "method":"code-wifi-thread",
-  "ssid": "Wi-Fi",
-  "pwd": "password",
-  "payload":"setup_payload"
-}
+code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_payload>
 ```
 
 ## MQTT control comand
 
-- Control end-device (On/Off cluster Toggle command)
+- Control end-device (On/Off cluster Toggle command) (See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information)
 
 ```
 {
   "actions": "invoke-cmd",
-  "node": 1234,
-  "endpoint": 1,
-  "cluster": 6,
-  "val": 2
+  "payload": "<node-id | group-id> <endpoint-id> <cluster-id> <command-id> <command-data>"
 }
 ```
 
@@ -218,10 +167,16 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 ```
 {
   "actions": "read-attr",
-  "node": 1234,
-  "endpoint": 1,
-  "cluster": 6,
-  "attr": 0
+  "payload": "<node-id> <endpoint-ids> <cluster-ids> <attribute-ids>"
+}
+```
+
+- Read event
+
+```
+{
+  "actions": "read-event",
+  "payload": "<node-id> <endpoint-ids> <cluster-ids> <event-ids>"
 }
 ```
 
@@ -230,11 +185,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 ```
 {
   "actions": "write-attr",
-  "node": 1234,
-  "endpoint": 1,
-  "cluster": 6,
-  "attr": 0,
-  "attribute_val":{{\"0:U8\": 2}}
+   "payload": "<node-id> <endpoint-id> <cluster-ids> <attribute-ids> <attribute-value>"
 }
 ```
 
@@ -243,12 +194,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 ```
 {
   "actions": "subs-attr",
-  "node": 1234,               ## Node/device ID
-  "endpoint": 1,              ## Endpoint ID
-  "cluster": 6,               ## Cluster ID
-  "attr": 0,                  ## Attribute ID
-  "min_interval": 0,          ## Minimum reporting interval (seconds)
-  "max_interval": 10          ## Maximum reporting interval (seconds)
+  "payload": "<node-id> <endpoint-ids> <cluster-ids> <attribute-ids> <min-interval> <max-interval>"
 }
 ```
 
