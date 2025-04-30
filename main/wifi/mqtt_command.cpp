@@ -108,10 +108,10 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
         }
         if (strcmp(action_type, "subs-attr") == 0)
         {
-            // chip::DeviceLayer::PlatformMgr().LockChipStack();
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
             result = esp_matter::command::controller_subscribe_attr(argc, argv);
-            // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
-               }
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
         if (strcmp(action_type, "invoke-cmd") == 0)
         {
             chip::DeviceLayer::PlatformMgr().LockChipStack();
@@ -120,9 +120,9 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
         }
         if (strcmp(action_type, "read-attr") == 0)
         {
-            //  chip::DeviceLayer::PlatformMgr().LockChipStack();
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
             result = esp_matter::command::controller_read_attr(argc, argv);
-            //  chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
         }
         if (strcmp(action_type, "write-attr") == 0)
         {
