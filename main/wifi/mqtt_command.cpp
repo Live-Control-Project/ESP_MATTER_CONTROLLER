@@ -108,11 +108,58 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
         }
         if (strcmp(action_type, "subs-attr") == 0)
         {
-            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            // chip::DeviceLayer::PlatformMgr().LockChipStack();
             result = esp_matter::command::controller_subscribe_attr(argc, argv);
+            // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+               }
+        if (strcmp(action_type, "invoke-cmd") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_invoke_command(argc, argv);
             chip::DeviceLayer::PlatformMgr().UnlockChipStack();
         }
-
+        if (strcmp(action_type, "read-attr") == 0)
+        {
+            //  chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_read_attr(argc, argv);
+            //  chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
+        if (strcmp(action_type, "write-attr") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_write_attr(argc, argv);
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
+        if (strcmp(action_type, "read-event") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_read_event(argc, argv);
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
+        if (strcmp(action_type, "subscribe-event") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_subscribe_event(argc, argv);
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
+        if (strcmp(action_type, "shutdown-subscription") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_shutdown_subscription(argc, argv);
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
+        if (strcmp(action_type, "shutdown-subscriptions") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_shutdown_subscriptions(argc, argv);
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
+        if (strcmp(action_type, "shutdown-all-subscriptions") == 0)
+        {
+            chip::DeviceLayer::PlatformMgr().LockChipStack();
+            result = esp_matter::command::controller_shutdown_all_subscriptions(argc, argv);
+            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+        }
         // Prepare MQTT payload
         const char *result_str = (result == ESP_OK) ? "success" : esp_err_to_name(result);
         size_t jsonLen = strlen("{\"\":\"\"}") + strlen(action_type) + strlen(result_str) + 1;
@@ -338,12 +385,43 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             }
             else if (strcmp(action_str, "pairing") == 0)
             {
-                // Отпрака команд сопряжения нового устройства
                 handle_command(json, "pairing", eventTopic);
             }
             else if (strcmp(action_str, "subs-attr") == 0)
             {
                 handle_command(json, "subs-attr", eventTopic);
+            }
+            else if (strcmp(action_str, "invoke-cmd") == 0)
+            {
+                handle_command(json, "invoke-cmd", eventTopic);
+            }
+            else if (strcmp(action_str, "read-attr") == 0)
+            {
+                handle_command(json, "read-attr", eventTopic);
+            }
+            else if (strcmp(action_str, "write-attr") == 0)
+            {
+                handle_command(json, "write-attr", eventTopic);
+            }
+            else if (strcmp(action_str, "read-event") == 0)
+            {
+                handle_command(json, "read-event", eventTopic);
+            }
+            else if (strcmp(action_str, "subscribe-event") == 0)
+            {
+                handle_command(json, "subscribe-event", eventTopic);
+            }
+            else if (strcmp(action_str, "shutdown-subscription") == 0)
+            {
+                handle_command(json, "shutdown-subscription", eventTopic);
+            }
+            else if (strcmp(action_str, "shutdown-subscriptions") == 0)
+            {
+                handle_command(json, "shutdown-subscriptions", eventTopic);
+            }
+            else if (strcmp(action_str, "shutdown-all-subscriptions") == 0)
+            {
+                handle_command(json, "shutdown-all-subscriptions", eventTopic);
             }
             else
             {

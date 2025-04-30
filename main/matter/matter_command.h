@@ -23,8 +23,6 @@ extern "C"
             esp_err_t controller_shutdown_subscription(int argc, char **argv);
             esp_err_t controller_shutdown_subscriptions(int argc, char **argv);
             esp_err_t controller_shutdown_all_subscriptions(int argc, char **argv);
-            //  esp_err_t string_to_uint16_array(const char *str, ScopedMemoryBufferWithSize<uint16_t> &uint16_array);
-            //  esp_err_t string_to_uint32_array(const char *str, ScopedMemoryBufferWithSize<uint32_t> &uint32_array);
         }
     }
 
