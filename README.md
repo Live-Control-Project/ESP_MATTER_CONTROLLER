@@ -109,7 +109,9 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 - Getting operational dataset TLV-encoded string.
 
 ```
-
+{
+  "actions":"getTLVs"
+}
 ```
 
 ## MQTT comand pairing

@@ -37,120 +37,135 @@
 #include <protocols/secure_channel/RendezvousParameters.h>
 #include <protocols/user_directed_commissioning/UserDirectedCommissioning.h>
 #include "matter_command.h"
+#include "matter_callbacks.h"
+
+#include <esp_matter.h>
+#include <esp_matter_core.h>
+#include <esp_matter_client.h>
+#include <freertos/FreeRTOS.h>
+
+#include <memory>
+#include <platform/ESP32/OpenthreadLauncher.h>
+
+#include <openthread/dataset.h>
+#include <openthread/instance.h>
+#include <esp_openthread.h>
+#include <esp_err.h>
 
 using chip::NodeId;
 using chip::Inet::IPAddress;
 using chip::Platform::ScopedMemoryBufferWithSize;
 using chip::Transport::PeerAddress;
+// using namespace esp_matter;
+// using namespace esp_matter::controller;
 
 const char *TAG = "MatterComand";
 
 namespace esp_matter
 {
 
-    size_t get_array_size(const char *str)
+    namespace command
     {
-        if (!str)
+        size_t get_array_size(const char *str)
         {
-            return 0;
-        }
-        size_t ret = 1;
-        for (size_t i = 0; i < strlen(str); ++i)
-        {
-            if (str[i] == ',')
+            if (!str)
             {
-                ret++;
+                return 0;
             }
+            size_t ret = 1;
+            for (size_t i = 0; i < strlen(str); ++i)
+            {
+                if (str[i] == ',')
+                {
+                    ret++;
+                }
+            }
+            return ret;
         }
-        return ret;
-    }
 
-    esp_err_t string_to_uint32_array(const char *str, ScopedMemoryBufferWithSize<uint32_t> &uint32_array)
-    {
-        size_t array_len = get_array_size(str);
-        if (array_len == 0)
+        esp_err_t string_to_uint32_array(const char *str, ScopedMemoryBufferWithSize<uint32_t> &uint32_array)
         {
-            return ESP_ERR_INVALID_ARG;
-        }
-        uint32_array.Calloc(array_len);
-        if (!uint32_array.Get())
-        {
-            return ESP_ERR_NO_MEM;
-        }
-        char number[11]; // max(strlen("0xFFFFFFFF"), strlen("4294967295")) + 1
-        const char *next_number_start = str;
-        char *next_number_end = NULL;
-        size_t next_number_len = 0;
-        for (size_t i = 0; i < array_len; ++i)
-        {
-            next_number_end = strchr(next_number_start, ',');
-            if (next_number_end > next_number_start)
-            {
-                next_number_len = std::min((size_t)(next_number_end - next_number_start), sizeof(number) - 1);
-            }
-            else if (i == array_len - 1)
-            {
-                next_number_len = strnlen(next_number_start, sizeof(number) - 1);
-            }
-            else
+            size_t array_len = get_array_size(str);
+            if (array_len == 0)
             {
                 return ESP_ERR_INVALID_ARG;
             }
-            strncpy(number, next_number_start, next_number_len);
-            number[next_number_len] = 0;
-            uint32_array[i] = string_to_uint32(number);
-            if (next_number_end > next_number_start)
+            uint32_array.Calloc(array_len);
+            if (!uint32_array.Get())
             {
-                next_number_start = next_number_end + 1;
+                return ESP_ERR_NO_MEM;
             }
+            char number[11]; // max(strlen("0xFFFFFFFF"), strlen("4294967295")) + 1
+            const char *next_number_start = str;
+            char *next_number_end = NULL;
+            size_t next_number_len = 0;
+            for (size_t i = 0; i < array_len; ++i)
+            {
+                next_number_end = strchr(next_number_start, ',');
+                if (next_number_end > next_number_start)
+                {
+                    next_number_len = std::min((size_t)(next_number_end - next_number_start), sizeof(number) - 1);
+                }
+                else if (i == array_len - 1)
+                {
+                    next_number_len = strnlen(next_number_start, sizeof(number) - 1);
+                }
+                else
+                {
+                    return ESP_ERR_INVALID_ARG;
+                }
+                strncpy(number, next_number_start, next_number_len);
+                number[next_number_len] = 0;
+                uint32_array[i] = string_to_uint32(number);
+                if (next_number_end > next_number_start)
+                {
+                    next_number_start = next_number_end + 1;
+                }
+            }
+            return ESP_OK;
         }
-        return ESP_OK;
-    }
 
-    esp_err_t string_to_uint16_array(const char *str, ScopedMemoryBufferWithSize<uint16_t> &uint16_array)
-    {
-        size_t array_len = get_array_size(str);
-        if (array_len == 0)
+        esp_err_t string_to_uint16_array(const char *str, ScopedMemoryBufferWithSize<uint16_t> &uint16_array)
         {
-            return ESP_ERR_INVALID_ARG;
-        }
-        uint16_array.Calloc(array_len);
-        if (!uint16_array.Get())
-        {
-            return ESP_ERR_NO_MEM;
-        }
-        char number[7]; // max(strlen(0xFFFF), strlen(65535)) + 1
-        const char *next_number_start = str;
-        char *next_number_end = NULL;
-        size_t next_number_len = 0;
-        for (size_t i = 0; i < array_len; ++i)
-        {
-            next_number_end = strchr(next_number_start, ',');
-            if (next_number_end > next_number_start)
-            {
-                next_number_len = std::min((size_t)(next_number_end - next_number_start), sizeof(number) - 1);
-            }
-            else if (i == array_len - 1)
-            {
-                next_number_len = strnlen(next_number_start, sizeof(number) - 1);
-            }
-            else
+            size_t array_len = get_array_size(str);
+            if (array_len == 0)
             {
                 return ESP_ERR_INVALID_ARG;
             }
-            strncpy(number, next_number_start, next_number_len);
-            number[next_number_len] = 0;
-            uint16_array[i] = string_to_uint16(number);
-            if (next_number_end > next_number_start)
+            uint16_array.Calloc(array_len);
+            if (!uint16_array.Get())
             {
-                next_number_start = next_number_end + 1;
+                return ESP_ERR_NO_MEM;
             }
+            char number[7]; // max(strlen(0xFFFF), strlen(65535)) + 1
+            const char *next_number_start = str;
+            char *next_number_end = NULL;
+            size_t next_number_len = 0;
+            for (size_t i = 0; i < array_len; ++i)
+            {
+                next_number_end = strchr(next_number_start, ',');
+                if (next_number_end > next_number_start)
+                {
+                    next_number_len = std::min((size_t)(next_number_end - next_number_start), sizeof(number) - 1);
+                }
+                else if (i == array_len - 1)
+                {
+                    next_number_len = strnlen(next_number_start, sizeof(number) - 1);
+                }
+                else
+                {
+                    return ESP_ERR_INVALID_ARG;
+                }
+                strncpy(number, next_number_start, next_number_len);
+                number[next_number_len] = 0;
+                uint16_array[i] = string_to_uint16(number);
+                if (next_number_end > next_number_start)
+                {
+                    next_number_start = next_number_end + 1;
+                }
+            }
+            return ESP_OK;
         }
-        return ESP_OK;
-    }
-
-    namespace console
-    {
 
 #if defined(CONFIG_ENABLE_ESP32_BLE_CONTROLLER) && defined(CONFIG_ESP_MATTER_COMMISSIONER_ENABLE)
         int char_to_int(char ch)
@@ -580,7 +595,27 @@ namespace esp_matter
 
             return controller::send_read_event_command(node_id, endpoint_ids, cluster_ids, event_ids);
         }
+        /*
+                esp_err_t controller_subscribe_attr(int argc, char **argv)
+                {
+                    if (argc != 6)
+                    {
+                        return ESP_ERR_INVALID_ARG;
+                    }
 
+                    uint64_t node_id = string_to_uint64(argv[0]);
+                    ScopedMemoryBufferWithSize<uint16_t> endpoint_ids;
+                    ScopedMemoryBufferWithSize<uint32_t> cluster_ids;
+                    ScopedMemoryBufferWithSize<uint32_t> attribute_ids;
+                    ESP_RETURN_ON_ERROR(string_to_uint16_array(argv[1], endpoint_ids), TAG, "Failed to parse endpoint IDs");
+                    ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[2], cluster_ids), TAG, "Failed to parse cluster IDs");
+                    ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[3], attribute_ids), TAG, "Failed to parse attribute IDs");
+                    uint16_t min_interval = string_to_uint16(argv[4]);
+                    uint16_t max_interval = string_to_uint16(argv[5]);
+
+                    return controller::send_subscribe_attr_command(node_id, endpoint_ids, cluster_ids, attribute_ids, min_interval, max_interval);
+                }
+        */
         esp_err_t controller_subscribe_attr(int argc, char **argv)
         {
             if (argc != 6)
@@ -589,17 +624,53 @@ namespace esp_matter
             }
 
             uint64_t node_id = string_to_uint64(argv[0]);
-            ScopedMemoryBufferWithSize<uint16_t> endpoint_ids;
-            ScopedMemoryBufferWithSize<uint32_t> cluster_ids;
-            ScopedMemoryBufferWithSize<uint32_t> attribute_ids;
-            ESP_RETURN_ON_ERROR(string_to_uint16_array(argv[1], endpoint_ids), TAG, "Failed to parse endpoint IDs");
-            ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[2], cluster_ids), TAG, "Failed to parse cluster IDs");
-            ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[3], attribute_ids), TAG, "Failed to parse attribute IDs");
+            ScopedMemoryBufferWithSize<chip::app::AttributePathParams> attr_paths;
+            size_t attr_count = get_array_size(argv[1]); // Assuming argv[1] contains attribute paths
+            attr_paths.Calloc(attr_count);
+            if (!attr_paths.Get())
+            {
+                return ESP_ERR_NO_MEM;
+            }
+
+            for (size_t i = 0; i < attr_count; ++i)
+            {
+                attr_paths[i].mEndpointId = string_to_uint16(argv[1]);  // Parse endpoint ID
+                attr_paths[i].mClusterId = string_to_uint32(argv[2]);   // Parse cluster ID
+                attr_paths[i].mAttributeId = string_to_uint32(argv[3]); // Parse attribute ID
+            }
+
             uint16_t min_interval = string_to_uint16(argv[4]);
             uint16_t max_interval = string_to_uint16(argv[5]);
 
-            return controller::send_subscribe_attr_command(node_id, endpoint_ids, cluster_ids, attribute_ids, min_interval,
-                                                           max_interval);
+            esp_matter::controller::subscribe_command *cmd = chip::Platform::New<esp_matter::controller::subscribe_command>(
+                node_id, std::move(attr_paths), ScopedMemoryBufferWithSize<chip::app::EventPathParams>(),
+                min_interval, max_interval, true, OnAttributeData, nullptr, nullptr, nullptr);
+
+            if (!cmd)
+            {
+                ESP_LOGE(TAG, "Failed to alloc memory for subscribe_command");
+            }
+            else
+            {
+                // chip::DeviceLayer::PlatformMgr().LockChipStack();
+                // отправка с проверкой ошибки
+                esp_err_t err = cmd->send_command();
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to send subscribe command: %s", esp_err_to_name(err));
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "subscribe_command sent successfully");
+                }
+                // освобождение памяти
+                // chip::Platform::Delete(cmd);
+
+                // cmd->send_command();
+                // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+            }
+
+            return ESP_OK; // Ensure the function returns a value
         }
 
         esp_err_t controller_subscribe_event(int argc, char **argv)
