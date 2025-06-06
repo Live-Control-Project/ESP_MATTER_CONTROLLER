@@ -545,7 +545,42 @@ namespace esp_matter
             ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[2], cluster_ids), TAG, "Failed to parse cluster IDs");
             ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[3], attribute_ids), TAG, "Failed to parse attribute IDs");
 
-            return controller::send_read_attr_command(node_id, endpoint_ids, cluster_ids, attribute_ids);
+            // return controller::send_read_attr_command(node_id, endpoint_ids, cluster_ids, attribute_ids);
+            // Добавляем колбэк для обработки отвера
+            // Формируем массив AttributePathParams
+            size_t attr_count = endpoint_ids.AllocatedSize() * cluster_ids.AllocatedSize() * attribute_ids.AllocatedSize();
+            ScopedMemoryBufferWithSize<chip::app::AttributePathParams> attr_paths;
+            attr_paths.Calloc(attr_count);
+            if (!attr_paths.Get())
+            {
+                return ESP_ERR_NO_MEM;
+            }
+            size_t idx = 0;
+            for (size_t e = 0; e < endpoint_ids.AllocatedSize(); ++e)
+                for (size_t c = 0; c < cluster_ids.AllocatedSize(); ++c)
+                    for (size_t a = 0; a < attribute_ids.AllocatedSize(); ++a)
+                    {
+                        attr_paths[idx].mEndpointId = endpoint_ids[e];
+                        attr_paths[idx].mClusterId = cluster_ids[c];
+                        attr_paths[idx].mAttributeId = attribute_ids[a];
+                        ++idx;
+                    }
+
+            esp_matter::controller::read_command *cmd = chip::Platform::New<esp_matter::controller::read_command>(
+                node_id, std::move(attr_paths), ScopedMemoryBufferWithSize<chip::app::EventPathParams>(),
+                OnAttributeData, nullptr, nullptr);
+
+            if (!cmd)
+            {
+                ESP_LOGE(TAG, "Failed to alloc memory for read_command");
+                return ESP_ERR_NO_MEM;
+            }
+            else
+            {
+                //  chip::DeviceLayer::PlatformMgr().LockChipStack();
+                return cmd->send_command();
+                //  chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+            }
         }
 
         esp_err_t controller_write_attr(int argc, char **argv)

@@ -30,8 +30,9 @@
 
 // #include "../matter/matter_command.h"
 #include "matter_command.h"
-
 #include "matter_callbacks.h"
+
+#include "devices.h"
 
 #define CLI_INPUT_BUFF_LENGTH 256u
 
@@ -423,6 +424,9 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             {
                 handle_command(json, "shutdown-all-subscriptions", eventTopic);
             }
+            else if (strcmp(action_str, "test") == 0)
+            {
+                        }
             else
             {
                 ESP_LOGE(TAG, "No valid 'actions' field in JSON");

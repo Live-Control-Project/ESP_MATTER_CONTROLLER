@@ -1,6 +1,6 @@
-idf_component_register(SRC_DIRS          "." "wifi" "console" "matter"
+idf_component_register(SRC_DIRS          "." "wifi" "console" "matter" "devicemanager"
                        INCLUDE_DIRS      "."
-                       PRIV_INCLUDE_DIRS  "." "utils" "wifi" "console" "matter"
+                       PRIV_INCLUDE_DIRS  "." "utils" "wifi" "console" "matter"  "devicemanager"
                        LDFRAGMENTS "linker.lf")
 
 if(CONFIG_SPIFFS_ATTESTATION_TRUST_STORE)
