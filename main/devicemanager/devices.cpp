@@ -159,7 +159,8 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
                              uint32_t attribute_id, esp_matter_attr_val_t *value)
 {
     // Проверка валидности указателя контроллера
-    if (!controller || controller->magic != CONTROLLER_MAGIC)
+    //    if (!controller || controller->magic != CONTROLLER_MAGIC)
+    if (!controller)
     {
         ESP_LOGE(TAG_device, "Invalid controller pointer");
         return;
@@ -176,6 +177,7 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
             return;
         }
         ESP_LOGI(TAG_device, "Created new node: 0x%016llX", node_id);
+        // save_devices_to_nvs(&controller)
     }
 
     // Обработка endpoint (если endpoint_id валиден)
@@ -277,7 +279,8 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
 
 esp_err_t remove_device(matter_controller_t *controller, uint64_t node_id)
 {
-    if (!controller || controller->magic != CONTROLLER_MAGIC)
+    // if (!controller || controller->magic != CONTROLLER_MAGIC)
+    if (!controller)
     {
         ESP_LOGE(TAG_device, "Invalid controller pointer");
         return ESP_ERR_INVALID_ARG;
