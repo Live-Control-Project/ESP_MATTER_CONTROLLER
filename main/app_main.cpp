@@ -34,6 +34,7 @@
 #include "wifi/wifi.h"
 
 #include "console/console.h"
+#include "matter_callbacks.h"
 
 static const char *TAG = "app_main";
 uint16_t switch_endpoint_id = 0;
@@ -121,6 +122,7 @@ extern "C" void app_main()
             return;
         }
     }
+
 //-----------------------------------------------------------------------------//
 #if CONFIG_ENABLE_CHIP_SHELL
     esp_matter::console::diagnostics_register_commands();
