@@ -36,6 +36,8 @@ extern "C"
     {
         uint16_t endpoint_id;
         char endpoint_name[32];
+        uint16_t clusters[16]; // Массив ID кластеров (увеличьте размер при необходимости)
+        uint8_t cluster_count; // Количество кластеров в массиве
     } matter_endpoint_t;
 
     // Структура узла (устройства)
@@ -44,6 +46,7 @@ extern "C"
         uint64_t node_id;
         bool is_online;
         char model_name[32];
+        char description[64];
         char vendor_name[32];
         uint32_t vendor_id;
         char firmware_version[32];
@@ -143,7 +146,7 @@ extern "C"
      */
     void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
                                  uint16_t endpoint_id, uint32_t cluster_id,
-                                 uint32_t attribute_id, esp_matter_attr_val_t *value);
+                                 uint32_t attribute_id, esp_matter_attr_val_t *value, std::optional<bool> need_subscribe = std::nullopt);
 
     /**
      * @brief Освобождение ресурсов контроллера
@@ -186,6 +189,10 @@ extern "C"
     esp_err_t save_devices_to_nvs(matter_controller_t *controller);
     esp_err_t load_devices_from_nvs(matter_controller_t *controller);
     void clear_devices_in_nvs();
+    esp_err_t subscribe_all_marked_attributes(matter_controller_t *controller);
+    esp_err_t publish_fd(matter_controller_t *controller, uint64_t node_id,
+                         uint16_t endpoint_id, uint32_t cluster_id,
+                         uint32_t attribute_id);
 
 #ifdef __cplusplus
 }

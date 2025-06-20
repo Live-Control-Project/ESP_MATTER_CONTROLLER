@@ -33,7 +33,7 @@
 #include "matter_callbacks.h"
 
 #include "devices.h"
-
+extern matter_controller_t g_controller;
 #define CLI_INPUT_BUFF_LENGTH 256u
 
 using namespace esp_matter;
@@ -74,7 +74,8 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
         if (input_str == nullptr || strlen(input_str) == 0)
         {
             char error_msg[64];
-            snprintf(error_msg, sizeof(error_msg), "{\"%s\":\"INVALID_ARG\"}", action_type);
+            // формат {"action":action_type,"status":"INVALID_ARG"}
+            snprintf(error_msg, sizeof(error_msg), "{\"action\":\"%s\",\"status\":\"INVALID_ARG\"}", action_type);
             mqtt_publish_data(eventTopic, error_msg);
             return;
         }
@@ -84,7 +85,7 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
         if (input_copy == nullptr)
         {
             char error_msg[64];
-            snprintf(error_msg, sizeof(error_msg), "{\"%s\":\"ERR_NO_MEM\"}", action_type);
+            snprintf(error_msg, sizeof(error_msg), "{\"action\":\"%s\",\"status\":\"ERR_NO_MEM\"}", action_type);
             mqtt_publish_data(eventTopic, error_msg);
             return;
         }
@@ -103,9 +104,10 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
         // Вызываем  обработчик
         if (strcmp(action_type, "pairing") == 0)
         {
-            chip::DeviceLayer::PlatformMgr().LockChipStack();
+
+            // chip::DeviceLayer::PlatformMgr().LockChipStack();
             result = esp_matter::command::controller_pairing(argc, argv);
-            chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+            // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
         }
         if (strcmp(action_type, "subs-attr") == 0)
         {
@@ -162,30 +164,28 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
             chip::DeviceLayer::PlatformMgr().UnlockChipStack();
         }
         // Prepare MQTT payload
-        const char *result_str = (result == ESP_OK) ? "success" : esp_err_to_name(result);
-        size_t jsonLen = strlen("{\"\":\"\"}") + strlen(action_type) + strlen(result_str) + 1;
-        char *jsonPayload = (char *)malloc(jsonLen);
-        if (jsonPayload == nullptr)
+
+        if (result != ESP_OK)
         {
             free(input_copy);
             ESP_LOGE(TAG, "Memory allocation for JSON payload failed");
             char error_msg[64];
-            snprintf(error_msg, sizeof(error_msg), "{\"%s\":\"ERR_NO_MEM\"}", action_type);
+            snprintf(error_msg, sizeof(error_msg), "{\"action\":\"%s\",\"status\":\"ERR_NO_MEM\"}", action_type);
             mqtt_publish_data(eventTopic, error_msg);
             return;
         }
-
-        snprintf(jsonPayload, jsonLen, "{\"%s\":\"%s\"}", action_type, result_str);
-
-        // Publish result
-        esp_err_t mqtt_ret = mqtt_publish_data(eventTopic, jsonPayload);
-        if (mqtt_ret != ESP_OK)
+        else
         {
-            ESP_LOGE(TAG, "MQTT publish failed: %s", esp_err_to_name(mqtt_ret));
+            char msg[64];
+            snprintf(msg, sizeof(msg), "{\"action\":\"%s\",\"status\":\"progress\"}", action_type);
+            // Publish result
+            esp_err_t mqtt_ret = mqtt_publish_data(eventTopic, msg);
+            if (mqtt_ret != ESP_OK)
+            {
+                ESP_LOGE(TAG, "MQTT publish failed: %s", esp_err_to_name(mqtt_ret));
+            }
         }
-
         // Cleanup
-        free(jsonPayload);
         free(input_copy);
     }
 }
@@ -198,7 +198,8 @@ void getTLVs(const char *eventTopic)
     if (instance == nullptr)
     {
         ESP_LOGE(TAG, "OpenThread instance is not initialized");
-        mqtt_publish_data(eventTopic, "{\"TLVs\":\"NoInstance\"}");
+        // формат {"action":action_type,"status":"INVALID_ARG"}
+        mqtt_publish_data(eventTopic, "{\"action\":\"getTLVs\",\"status\":\"NoInstance\"}");
         return;
     }
 
@@ -220,7 +221,7 @@ void getTLVs(const char *eventTopic)
         if (strlen(tlvsStr) >= sizeof(sys_settings.thread.TLVs))
         {
             ESP_LOGE(TAG, "TLVs string too long for buffer");
-            mqtt_publish_data(eventTopic, "{\"TLVs\":\"TooLong\"}");
+            mqtt_publish_data(eventTopic, "{\"action\":\"getTLVs\",\"status\":\"TooLong\"}");
             return;
         }
 
@@ -234,11 +235,12 @@ void getTLVs(const char *eventTopic)
         if (!jsonPayload)
         {
             ESP_LOGE(TAG, "JSON payload allocation failed");
-            mqtt_publish_data(eventTopic, "{\"TLVs\":\"MemErr\"}");
+            mqtt_publish_data(eventTopic, "{\"action\":\"getTLVs\",\"status\":\"MemErr\"}");
             return;
         }
 
-        snprintf(jsonPayload, jsonLen, "{\"TLVs\":\"%s\"}", sys_settings.thread.TLVs);
+        // формат {"action":getTLVs,"status":"INVALID_ARG"}
+        snprintf(jsonPayload, jsonLen, "{\"action\":\"getTLVs\",\"status\":\"%s\"}", sys_settings.thread.TLVs);
 
         // Публикуем
         esp_err_t ret = mqtt_publish_data(eventTopic, jsonPayload);
@@ -252,7 +254,7 @@ void getTLVs(const char *eventTopic)
     else
     {
         ESP_LOGE(TAG, "Failed to get TLVs: %d", error);
-        mqtt_publish_data(eventTopic, "{\"TLVs\":\"Err\"}");
+        mqtt_publish_data(eventTopic, "{\"action\":\"getTLVs\",\"status\":\"Err\"}");
     }
 }
 
@@ -291,22 +293,37 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             return;
         }
 
-        cJSON *actions = cJSON_GetObjectItem(json, "actions");
-        if (actions && cJSON_IsString(actions))
+        cJSON *action = cJSON_GetObjectItem(json, "action");
+        if (action && cJSON_IsString(action))
         {
-            const char *action_str = actions->valuestring;
+            const char *action_str = action->valuestring;
             if (strcmp(action_str, "reboot") == 0)
             {
                 ESP_LOGW(TAG, "Reboot ESP");
-                mqtt_publish_data(eventTopic, "{\"reboot\":\"Ok\"}");
+
+                mqtt_publish_data(eventTopic, "{\"action\":\"reboot\",\"status\":\"progress\"}");
+
                 vTaskDelay(3000 / portTICK_PERIOD_MS);
                 esp_restart();
             }
             else if (strcmp(action_str, "factoryreset") == 0)
             {
                 ESP_LOGW(TAG, "Matter factory reset");
-                mqtt_publish_data(eventTopic, "{\"factoryreset\":\"Ok\"}");
-                vTaskDelay(2000 / portTICK_PERIOD_MS);
+                mqtt_publish_data(eventTopic, "{\"action\":\"factoryreset\",\"status\":\"progress\"}");
+                settings_set_defaults();
+                matter_controller_free(&g_controller);
+                // сохраняем nvs
+                esp_err_t ret = save_devices_to_nvs(&g_controller);
+                if (ret != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to delete devices from NVS: 0x%x", ret);
+                }
+
+                else
+                {
+                    ESP_LOGI(TAG, "Devices deleted from NVS");
+                }
+                vTaskDelay(5000 / portTICK_PERIOD_MS);
                 esp_matter::factory_reset();
             }
             else if (strcmp(action_str, "initOpenThread") == 0)
@@ -320,11 +337,11 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 if (result != ESP_OK)
                 {
                     printf("Error sending the command: %s\n", payload_str);
-                    mqtt_publish_data(eventTopic, "{\"dataset_init_new\":\"Err\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"dataset_init_new\",\"status\":\"failed\"}");
                 }
                 else
                 {
-                    mqtt_publish_data(eventTopic, "{\"dataset_init_new\":\"Ok\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"dataset_init_new\",\"status\":\"success\"}");
                 }
                 // vTaskDelay(2000 / portTICK_PERIOD_MS);
                 payload_str = "dataset commit active";
@@ -332,11 +349,11 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 if (result != ESP_OK)
                 {
                     printf("Error sending the command: %s\n", payload_str);
-                    mqtt_publish_data(eventTopic, "{\"dataset_commit_active\":\"Err\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"dataset_commit_active\",\"status\":\"failed\"}");
                 }
                 else
                 {
-                    mqtt_publish_data(eventTopic, "{\"dataset_commit_active\":\"Ok\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"dataset_commit_active\",\"status\":\"success\"}");
                 }
                 // vTaskDelay(2000 / portTICK_PERIOD_MS);
                 payload_str = "dataset active -x";
@@ -344,11 +361,11 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 if (result != ESP_OK)
                 {
                     printf("Error sending the command: %s\n", payload_str);
-                    mqtt_publish_data(eventTopic, "{\"dataset_active_x\":\"Err\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"dataset_active_x\",\"status\":\"failed\"}");
                 }
                 else
                 {
-                    mqtt_publish_data(eventTopic, "{\"dataset_active_x\":\"Ok\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"dataset_active_x\",\"status\":\"success\"}");
                 }
                 // vTaskDelay(1000 / portTICK_PERIOD_MS);
                 payload_str = "ifconfig up";
@@ -356,11 +373,11 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 if (result != ESP_OK)
                 {
                     printf("Error sending the command: %s\n", payload_str);
-                    mqtt_publish_data(eventTopic, "{\"ifconfig_up\":\"Err\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"ifconfig_up\",\"status\":\"failed\"}");
                 }
                 else
                 {
-                    mqtt_publish_data(eventTopic, "{\"ifconfig_up\":\"Ok\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"ifconfig_up\",\"status\":\"success\"}");
                 }
                 // vTaskDelay(2000 / portTICK_PERIOD_MS);
                 payload_str = "thread start";
@@ -368,11 +385,11 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                 if (result != ESP_OK)
                 {
                     printf("Error sending the command: %s\n", payload_str);
-                    mqtt_publish_data(eventTopic, "{\"thread_start\":\"Err\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"thread_start\",\"status\":\"failed\"}");
                 }
                 else
                 {
-                    mqtt_publish_data(eventTopic, "{\"thread_start\":\"Ok\"}");
+                    mqtt_publish_data(eventTopic, "{\"action\":\"thread_start\",\"status\":\"success\"}");
                 }
                 getTLVs(eventTopic);
             }
@@ -424,12 +441,20 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             {
                 handle_command(json, "shutdown-all-subscriptions", eventTopic);
             }
-            else if (strcmp(action_str, "test") == 0)
+            else if (strcmp(action_str, "subs-all-attrs") == 0)
             {
+                // chip::DeviceLayer::PlatformMgr().LockChipStack();
+                esp_err_t ret = subscribe_all_marked_attributes(&g_controller);
+                // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+
+                if (ret != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to subscribe to all marked attributes: %s", esp_err_to_name(ret));
+                }
             }
             else
             {
-                ESP_LOGE(TAG, "No valid 'actions' field in JSON");
+                ESP_LOGE(TAG, "No valid 'action' field in JSON");
             }
 
             cJSON_Delete(json);
