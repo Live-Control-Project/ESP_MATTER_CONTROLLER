@@ -35,6 +35,7 @@
 
 #include "console/console.h"
 #include "matter_callbacks.h"
+#include "devices.h"
 
 static const char *TAG = "app_main";
 uint16_t switch_endpoint_id = 0;
@@ -43,13 +44,54 @@ using namespace esp_matter;
 using namespace esp_matter::attribute;
 using namespace esp_matter::endpoint;
 
+matter_controller_t g_controller = {0};
+static bool attributes_subscribed = false;
 static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 {
     switch (event->Type)
     {
+    case chip::DeviceLayer::DeviceEventType::PublicEventTypes::kCommissioningComplete:
+        ESP_LOGI(TAG, "Commissioning complete");
+        if (!attributes_subscribed)
+        {
+            subscribe_all_marked_attributes(&g_controller);
+            attributes_subscribed = true;
+            ESP_LOGI(TAG, "Subscribed to all marked attributes. CommissioningComplete");
+        }
+        break;
+
+    case chip::DeviceLayer::DeviceEventType::PublicEventTypes::kInternetConnectivityChange:
+        ESP_LOGI(TAG, "Internet connectivity change");
+        if ((event->InternetConnectivityChange.IPv4 == chip::DeviceLayer::kConnectivity_Established ||
+             event->InternetConnectivityChange.IPv6 == chip::DeviceLayer::kConnectivity_Established) &&
+            !attributes_subscribed)
+        {
+            // subscribe_all_marked_attributes(&g_controller);
+            // attributes_subscribed = true;
+            // ESP_LOGI(TAG, "Subscribed to all marked attributes. InternetConnectivityChange");
+        }
+        break;
+
     case chip::DeviceLayer::DeviceEventType::PublicEventTypes::kInterfaceIpAddressChanged:
         ESP_LOGI(TAG, "Interface IP Address changed");
+        if (!attributes_subscribed)
+        {
+            // subscribe_all_marked_attributes(&g_controller);
+            // attributes_subscribed = true;
+            // ESP_LOGI(TAG, "Subscribed to all marked attributes. InterfaceIpAddressChanged");
+        }
         break;
+    case chip::DeviceLayer::DeviceEventType::PublicEventTypes::kThreadConnectivityChange:
+        ESP_LOGI(TAG, "Thread connectivity change");
+        if (event->ThreadConnectivityChange.Result == chip::DeviceLayer::kConnectivity_Established &&
+            !attributes_subscribed)
+        {
+            subscribe_all_marked_attributes(&g_controller);
+            attributes_subscribed = true;
+            ESP_LOGI(TAG, "Subscribed to all marked attributes after Thread join");
+        }
+        break;
+
     case chip::DeviceLayer::DeviceEventType::kESPSystemEvent:
         if (event->Platform.ESPSystemEvent.Base == IP_EVENT &&
             event->Platform.ESPSystemEvent.Id == IP_EVENT_STA_GOT_IP)
@@ -93,17 +135,6 @@ extern "C" void app_main()
 
     console_init();
 
-    // Сохраняем с проверкой ошибок
-    ret = settings_save_to_nvs();
-    if (ret != ESP_OK)
-    {
-        ESP_LOGE("SETTINGS", "Save failed: %s", esp_err_to_name(ret));
-    }
-    else
-    {
-        ESP_LOGI("SETTINGS", "Settings saved successfully!");
-    }
-
     // Инициализация шины
     ret = bus_init();
     if (ret != ESP_OK)
@@ -121,6 +152,19 @@ extern "C" void app_main()
             ESP_LOGE("MAIN", "Wi-Fi init failed: %s", esp_err_to_name(ret));
             return;
         }
+    }
+    matter_controller_init(&g_controller, 0x123, 1);
+
+    // Загружаем устройства из NVS
+    //    ret = settings_save_to_nvs();
+    ret = load_devices_from_nvs(&g_controller);
+    if (ret != ESP_OK)
+    {
+        ESP_LOGE("SETTINGS", "Load failed: %s", esp_err_to_name(ret));
+    }
+    else
+    {
+        ESP_LOGI("SETTINGS", "Settings loaded successfully!");
     }
 
 //-----------------------------------------------------------------------------//

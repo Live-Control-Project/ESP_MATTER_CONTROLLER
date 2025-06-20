@@ -86,7 +86,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 
 ```
 {
-  "actions":"reboot"
+  "action":"reboot"
 }
 ```
 
@@ -94,7 +94,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 
 ```
 {
-  "actions":"factoryreset"
+  "action":"factoryreset"
 }
 ```
 
@@ -102,7 +102,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 
 ```
 {
-  "actions":"initOpenThread"
+  "action":"initOpenThread"
 }
 ```
 
@@ -110,7 +110,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 
 ```
 {
-  "actions":"getTLVs"
+  "action":"getTLVs"
 }
 ```
 
@@ -118,7 +118,7 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 
 ```
 {
-  "actions": "pairing",
+  "action": "pairing",
   "payload": <payloadStr>
 }
 ```
@@ -159,7 +159,7 @@ code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_paylo
 
 ```
 {
-  "actions": "invoke-cmd",
+  "action": "invoke-cmd",
   "payload": "<node-id | group-id> <endpoint-id> <cluster-id> <command-id> <command-data>"
 }
 ```
@@ -168,7 +168,7 @@ code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_paylo
 
 ```
 {
-  "actions": "read-attr",
+  "action": "read-attr",
   "payload": "<node-id> <endpoint-ids> <cluster-ids> <attribute-ids>"
 }
 ```
@@ -177,7 +177,7 @@ code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_paylo
 
 ```
 {
-  "actions": "read-event",
+  "action": "read-event",
   "payload": "<node-id> <endpoint-ids> <cluster-ids> <event-ids>"
 }
 ```
@@ -186,7 +186,7 @@ code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_paylo
 
 ```
 {
-  "actions": "write-attr",
+  "action": "write-attr",
    "payload": "<node-id> <endpoint-id> <cluster-ids> <attribute-ids> <attribute-value>"
 }
 ```
@@ -195,7 +195,7 @@ code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_paylo
 
 ```
 {
-  "actions": "subs-attr",
+  "action": "subs-attr",
   "payload": "<node-id> <endpoint-ids> <cluster-ids> <attribute-ids> <min-interval> <max-interval>"
 }
 ```

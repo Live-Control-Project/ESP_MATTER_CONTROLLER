@@ -21,7 +21,6 @@
 #include <esp_matter_controller_commissioning_window_opener.h>
 #include <esp_matter_controller_group_settings.h>
 #include <esp_matter_controller_pairing_command.h>
-#include <esp_matter_controller_read_command.h>
 #include <esp_matter_controller_subscribe_command.h>
 #include <esp_matter_controller_utils.h>
 #include <esp_matter_controller_write_command.h>
@@ -38,7 +37,7 @@
 #include <protocols/user_directed_commissioning/UserDirectedCommissioning.h>
 #include "matter_command.h"
 #include "matter_callbacks.h"
-
+#include "mqtt.h"
 #include <esp_matter.h>
 #include <esp_matter_core.h>
 #include <esp_matter_client.h>
@@ -51,6 +50,10 @@
 #include <openthread/instance.h>
 #include <esp_openthread.h>
 #include <esp_err.h>
+#include "devicemanager/devices.h"
+#include "settings.h"
+#include <string>
+#include <inttypes.h>
 
 using chip::NodeId;
 using chip::Inet::IPAddress;
@@ -58,7 +61,7 @@ using chip::Platform::ScopedMemoryBufferWithSize;
 using chip::Transport::PeerAddress;
 // using namespace esp_matter;
 // using namespace esp_matter::controller;
-
+extern matter_controller_t g_controller;
 const char *TAG = "MatterComand";
 
 namespace esp_matter
@@ -66,6 +69,83 @@ namespace esp_matter
 
     namespace command
     {
+
+        // -------------------- Callbacks for PairingCommand -----------------
+        void on_pase_callback(CHIP_ERROR err)
+        {
+            ESP_LOGI(TAG, "PASE session %s", err == CHIP_NO_ERROR ? "success" : "failed");
+        }
+
+        void on_commissioning_success_callback(chip::ScopedNodeId peer_id)
+        {
+            // параметры NodeId и FabricIndex перепутаны местами при создании объекта ScopedNodeId
+            // Правильный порядок аргументов вesp_matter_controller_pairing_command.cpp:
+            // 1. NodeId (должен быть первым)
+            // 2. FabricIndex (должен быть вторым)
+            // m_callbacks.commissioning_success_callback(
+            //    chip::ScopedNodeId(peerId.GetNodeId(), fabric->GetFabricIndex())
+            //);
+            uint64_t nodeId = peer_id.GetNodeId();
+            uint32_t fabricIndex = peer_id.GetFabricIndex();
+
+            // Log in both hex and decimal formats
+            ESP_LOGI(TAG, "Commissioning success with fabricIndex 0x%" PRIX32 " (dec %" PRIu32 ") node 0x%" PRIX64 " (dec %" PRIu64 ")",
+                     fabricIndex, fabricIndex, nodeId, nodeId);
+
+            // MQTT notification in format {"device":"40:4c:ca:ff:fe:4e:e9:58","event":"deviceJoined"}
+            char json_str[64];
+            snprintf(json_str, sizeof(json_str), "{\"device\":\"%" PRIX64 "\",\"status\":\"deviceJoined\"}", nodeId);
+
+            // Form topic
+            const char *mqttPrefix = sys_settings.mqtt.prefix;
+            const char *envtopic = "/event/matter/";
+            char eventTopic[128];
+            snprintf(eventTopic, sizeof(eventTopic), "%s%s", mqttPrefix, envtopic);
+
+            mqtt_publish_data(eventTopic, json_str);
+
+            // Read attribute 0x0003 from cluster 0x001D endpoint 0x0000
+            int argc = 4;
+            char nodeIdStr[32];
+            snprintf(nodeIdStr, sizeof(nodeIdStr), "%" PRIu64, nodeId);
+            char *argv[] = {nodeIdStr, (char *)"0x0000", (char *)"0x001D", (char *)"0x0003"};
+            esp_err_t result = esp_matter::command::controller_read_attr(argc, argv);
+            if (result != ESP_OK)
+            {
+                ESP_LOGE(TAG, "Failed to read Node structure for node 0x%" PRIX64 ": %s", nodeId, esp_err_to_name(result));
+            }
+            else
+            {
+                ESP_LOGI(TAG, "Successfully read Node structure for node 0x%" PRIu64, nodeId);
+            }
+        }
+
+        void on_commissioning_failure_callback(
+            chip::ScopedNodeId peer_id, CHIP_ERROR error, chip::Controller::CommissioningStage stage,
+            std::optional<chip::Credentials::AttestationVerificationResult> additional_err_info)
+        {
+            // CORRECTED: Use GetNodeId() instead of GetFabricIndex()
+            uint64_t nodeId = peer_id.GetNodeId();
+            uint32_t fabricIndex = peer_id.GetFabricIndex();
+
+            ESP_LOGE(TAG, "Commissioning failed for node 0x%" PRIX64 " (fabric 0x%" PRIX32 ") at stage %d: %" CHIP_ERROR_FORMAT,
+                     nodeId, fabricIndex, static_cast<int>(stage), error.Format());
+
+            // Form topic
+            const char *mqttPrefix = sys_settings.mqtt.prefix;
+            const char *envtopic = "/event/matter/";
+            char eventTopic[128];
+            snprintf(eventTopic, sizeof(eventTopic), "%s%s", mqttPrefix, envtopic);
+
+            char json_str[128];
+            snprintf(json_str, sizeof(json_str),
+                     "{\"device\":\"%" PRIX64 "\",\"status\":\"JoinFailed\",\"error\":\"%s\",\"stage\":%d}",
+                     nodeId, chip::ErrorStr(error), static_cast<int>(stage));
+            mqtt_publish_data(eventTopic, json_str);
+        }
+
+        // --------------------Колбэки для PairingCommand----------------
+
         size_t get_array_size(const char *str)
         {
             if (!str)
@@ -217,20 +297,28 @@ namespace esp_matter
             VerifyOrReturnError(argc >= 3 && argc <= 6, ESP_ERR_INVALID_ARG);
             esp_err_t result = ESP_ERR_INVALID_ARG;
 
+            esp_matter::controller::pairing_command_callbacks_t cbs = {
+                .pase_callback = on_pase_callback,
+                .commissioning_success_callback = on_commissioning_success_callback,
+                .commissioning_failure_callback = on_commissioning_failure_callback,
+            };
+            esp_matter::controller::pairing_command::get_instance().set_callbacks(cbs);
+
             if (strncmp(argv[0], "onnetwork", sizeof("onnetwork")) == 0)
             {
+                ESP_LOGI(TAG, "Pairing on network command");
                 VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
-
                 uint64_t nodeId = string_to_uint64(argv[1]);
                 uint32_t pincode = string_to_uint32(argv[2]);
-                return controller::pairing_on_network(nodeId, pincode);
+                result = controller::pairing_on_network(nodeId, pincode);
 
 #if CONFIG_ENABLE_ESP32_BLE_CONTROLLER
             }
             else if (strncmp(argv[0], "ble-wifi", sizeof("ble-wifi")) == 0)
             {
-                VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
 
+                ESP_LOGI(TAG, "Pairing over BLE and Wi-Fi command");
+                VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
                 uint64_t nodeId = string_to_uint64(argv[1]);
                 uint32_t pincode = string_to_uint32(argv[4]);
                 uint16_t disc = string_to_uint16(argv[5]);
@@ -239,8 +327,8 @@ namespace esp_matter
             }
             else if (strncmp(argv[0], "ble-thread", sizeof("ble-thread")) == 0)
             {
+                ESP_LOGI(TAG, "Pairing over BLE and Thread command");
                 VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
-
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
                 if (!convert_hex_str_to_bytes(argv[2], dataset_tlvs_buf, dataset_tlvs_len))
@@ -250,7 +338,6 @@ namespace esp_matter
                 uint64_t node_id = string_to_uint64(argv[1]);
                 uint32_t pincode = string_to_uint32(argv[3]);
                 uint16_t disc = string_to_uint16(argv[4]);
-
                 result = controller::pairing_ble_thread(node_id, pincode, disc, dataset_tlvs_buf, dataset_tlvs_len);
 #else  // if !CONFIG_ENABLE_ESP32_BLE_CONTROLLER
             }
@@ -263,8 +350,8 @@ namespace esp_matter
             }
             else if (strncmp(argv[0], "code", sizeof("code")) == 0)
             {
+                ESP_LOGI(TAG, "Pairing over code command");
                 VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
-
                 uint64_t nodeId = string_to_uint64(argv[1]);
                 const char *payload = argv[2];
 
@@ -272,11 +359,10 @@ namespace esp_matter
             }
             else if (strncmp(argv[0], "code-thread", sizeof("code-thread")) == 0)
             {
+                ESP_LOGI(TAG, "Pairing over code and thread command");
                 VerifyOrReturnError(argc == 4, ESP_ERR_INVALID_ARG);
-
                 uint64_t nodeId = string_to_uint64(argv[1]);
                 const char *payload = argv[3];
-
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
                 if (!convert_hex_str_to_bytes(argv[2], dataset_tlvs_buf, dataset_tlvs_len))
@@ -288,8 +374,8 @@ namespace esp_matter
             }
             else if (strncmp(argv[0], "code-wifi", sizeof("code-wifi")) == 0)
             {
+                ESP_LOGI(TAG, "Pairing over code and wifi command");
                 VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
-
                 uint64_t nodeId = string_to_uint64(argv[1]);
                 const char *ssid = argv[2];
                 const char *password = argv[3];
@@ -299,8 +385,8 @@ namespace esp_matter
             }
             else if (strncmp(argv[0], "code-wifi-thread", sizeof("code-wifi-thread")) == 0)
             {
+                ESP_LOGI(TAG, "Pairing over code, wifi and thread command");
                 VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
-
                 uint64_t nodeId = string_to_uint64(argv[1]);
                 const char *ssid = argv[2];
                 const char *password = argv[3];
@@ -319,7 +405,7 @@ namespace esp_matter
 
             if (result != ESP_OK)
             {
-                ESP_LOGE(TAG, "Pairing over code failed");
+                ESP_LOGE(TAG, "Pairing failed");
             }
             return result;
         }
@@ -530,6 +616,33 @@ namespace esp_matter
                                                            argc > 4 ? argv[4] : NULL);
         }
 
+        // -------------------------- Чтение атрибутов с колбэками без  AttributePathParams -------------------------- //
+        esp_err_t controller_request_attribute(uint64_t node_id, uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_or_event_id,
+                                               esp_matter::controller::read_command_type_t command_type)
+        {
+            esp_matter::controller::read_command *cmd = chip::Platform::New<esp_matter::controller::read_command>(
+                node_id, endpoint_id, cluster_id, attribute_or_event_id, command_type, OnAttributeData, OnReadDone, nullptr);
+            if (!cmd)
+            {
+                ESP_LOGE(TAG, "Failed to alloc memory for read_command");
+                return ESP_ERR_NO_MEM;
+            }
+            else
+            {
+                // chip::DeviceLayer::PlatformMgr().LockChipStack();
+                esp_err_t err = cmd->send_command();
+                // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+
+                if (err != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to send read command: %s", esp_err_to_name(err));
+                    return err;
+                }
+            }
+            return ESP_OK;
+        }
+        // -------------------------- Чтение атрибутов с колбэками без  AttributePathParams -------------------------- //
+
         esp_err_t controller_read_attr(int argc, char **argv)
         {
             if (argc != 4)
@@ -580,6 +693,7 @@ namespace esp_matter
                 //  chip::DeviceLayer::PlatformMgr().LockChipStack();
                 return cmd->send_command();
                 //  chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+                chip::Platform::Delete(cmd);
             }
         }
 
@@ -687,8 +801,6 @@ namespace esp_matter
             }
             else
             {
-                // chip::DeviceLayer::PlatformMgr().LockChipStack();
-                // отправка с проверкой ошибки
                 esp_err_t err = cmd->send_command();
                 if (err != ESP_OK)
                 {
@@ -698,11 +810,17 @@ namespace esp_matter
                 {
                     ESP_LOGI(TAG, "subscribe_command sent successfully");
                 }
-                // освобождение памяти
-                // chip::Platform::Delete(cmd);
 
-                // cmd->send_command();
-                // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+                handle_attribute_report(
+                    &g_controller,             // controller
+                    string_to_uint64(argv[0]), // node_id
+                    string_to_uint16(argv[1]), // endpoint_id
+                    string_to_uint32(argv[2]), // cluster_id
+                    string_to_uint32(argv[3]), // attribute_id
+                    nullptr,                   // value
+                    true                       // need_subscribe
+                );
+                // chip::Platform::Delete(cmd);
             }
 
             return ESP_OK; // Ensure the function returns a value
