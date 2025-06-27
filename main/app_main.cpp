@@ -76,9 +76,9 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
         ESP_LOGI(TAG, "Interface IP Address changed");
         if (!attributes_subscribed)
         {
-            // subscribe_all_marked_attributes(&g_controller);
-            // attributes_subscribed = true;
-            // ESP_LOGI(TAG, "Subscribed to all marked attributes. InterfaceIpAddressChanged");
+            subscribe_all_marked_attributes(&g_controller);
+            attributes_subscribed = true;
+            ESP_LOGI(TAG, "Subscribed to all marked attributes. InterfaceIpAddressChanged");
         }
         break;
     case chip::DeviceLayer::DeviceEventType::PublicEventTypes::kThreadConnectivityChange:
@@ -91,6 +91,27 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
             ESP_LOGI(TAG, "Subscribed to all marked attributes after Thread join");
         }
         break;
+
+        // Установлена безопасная сессия с устройством
+    case chip::DeviceLayer::DeviceEventType::kSecureSessionEstablished:
+    {
+        uint64_t peer_node_id = event->SecureSessionEstablished.PeerNodeId;
+        ESP_LOGI("AppEvent", "Безопасная сессия установлена с Node ID: 0x%" PRIx64, peer_node_id);
+
+        // !!! ToDo переделать механизм подписки. Сделать флаг, что подписка выполнена успешно. Подписываться на конкретную ноду
+        subscribe_all_marked_attributes(&g_controller);
+        attributes_subscribed = true;
+        ESP_LOGI(TAG, "Subscribed to all marked attributes after Thread join");
+
+        break;
+    }
+
+    // Устройство стало операционным (например, подключилось к Thread/WiFi)
+    case chip::DeviceLayer::DeviceEventType::kOperationalNetworkEnabled:
+    {
+        ESP_LOGI("AppEvent", "Операционная сеть активирована");
+        break;
+    }
 
     case chip::DeviceLayer::DeviceEventType::kESPSystemEvent:
         if (event->Platform.ESPSystemEvent.Base == IP_EVENT &&

@@ -126,31 +126,31 @@ mqtt mqtt://mqtt_server.com:1883 {prefix} -u {mqtt_user_name} -p {mqtt_user_pass
 # payloadStr
 
 ```
-ble-thread <node_id> <dataset_tlvs> <pincode> <discriminator>
+ble-thread  <dataset_tlvs> <pincode> <discriminator>
 ```
 
 ```
-ble-wifi <node_id> <ssid> <password> <pincode> <discriminator>
+ble-wifi  <ssid> <password> <pincode> <discriminator>
 ```
 
 ```
-onnetwork <node_id> <setup_passcode>
+onnetwork  <setup_passcode>
 ```
 
 ```
-code <node_id> <setup_payload>
+code  <setup_payload>
 ```
 
 ```
-code-wifi <node_id> <ssid> <passphrase> <setup_payload>
+code-wifi  <ssid> <passphrase> <setup_payload>
 ```
 
 ```
-code-thread <node_id> <operationalDataset> <setup_payload>
+code-thread  <operationalDataset> <setup_payload>
 ```
 
 ```
-code-wifi-thread <node_id> <ssid> <passphrase> <operationalDataset> <setup_payload>
+code-wifi-thread  <ssid> <passphrase> <operationalDataset> <setup_payload>
 ```
 
 ## MQTT control comand

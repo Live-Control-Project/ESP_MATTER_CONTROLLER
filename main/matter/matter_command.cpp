@@ -294,7 +294,7 @@ namespace esp_matter
 #if CONFIG_ESP_MATTER_COMMISSIONER_ENABLE
         esp_err_t controller_pairing(int argc, char **argv)
         {
-            VerifyOrReturnError(argc >= 3 && argc <= 6, ESP_ERR_INVALID_ARG);
+            VerifyOrReturnError(argc >= 3 && argc <= 5, ESP_ERR_INVALID_ARG);
             esp_err_t result = ESP_ERR_INVALID_ARG;
 
             esp_matter::controller::pairing_command_callbacks_t cbs = {
@@ -304,12 +304,24 @@ namespace esp_matter
             };
             esp_matter::controller::pairing_command::get_instance().set_callbacks(cbs);
 
+            // ищем в matter_controller_t номер последней ноды . Создаем новый номер для новой ноды.
+            uint64_t nodeId = 0;
+
+            if (g_controller.nodes_count > 0)
+            {
+                nodeId = g_controller.nodes_list[g_controller.nodes_count - 1].node_id + 1;
+            }
+            else
+            {
+                nodeId = chip::kTestDeviceNodeId; // начнем с тестового ID
+            }
+
             if (strncmp(argv[0], "onnetwork", sizeof("onnetwork")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing on network command");
-                VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                uint32_t pincode = string_to_uint32(argv[2]);
+                VerifyOrReturnError(argc == 2, ESP_ERR_INVALID_ARG);
+                //                uint64_t nodeId = string_to_uint64(argv[1]);
+                uint32_t pincode = string_to_uint32(argv[1]);
                 result = controller::pairing_on_network(nodeId, pincode);
 
 #if CONFIG_ENABLE_ESP32_BLE_CONTROLLER
@@ -318,27 +330,27 @@ namespace esp_matter
             {
 
                 ESP_LOGI(TAG, "Pairing over BLE and Wi-Fi command");
-                VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                uint32_t pincode = string_to_uint32(argv[4]);
-                uint16_t disc = string_to_uint16(argv[5]);
+                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                uint32_t pincode = string_to_uint32(argv[3]);
+                uint16_t disc = string_to_uint16(argv[4]);
 
-                result = controller::pairing_ble_wifi(nodeId, pincode, disc, argv[2], argv[3]);
+                result = controller::pairing_ble_wifi(nodeId, pincode, disc, argv[1], argv[2]);
             }
             else if (strncmp(argv[0], "ble-thread", sizeof("ble-thread")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over BLE and Thread command");
-                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
+                VerifyOrReturnError(argc == 4, ESP_ERR_INVALID_ARG);
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
-                if (!convert_hex_str_to_bytes(argv[2], dataset_tlvs_buf, dataset_tlvs_len))
+                if (!convert_hex_str_to_bytes(argv[1], dataset_tlvs_buf, dataset_tlvs_len))
                 {
                     return ESP_ERR_INVALID_ARG;
                 }
-                uint64_t node_id = string_to_uint64(argv[1]);
-                uint32_t pincode = string_to_uint32(argv[3]);
-                uint16_t disc = string_to_uint16(argv[4]);
-                result = controller::pairing_ble_thread(node_id, pincode, disc, dataset_tlvs_buf, dataset_tlvs_len);
+                // uint64_t node_id = string_to_uint64(argv[1]);
+                uint32_t pincode = string_to_uint32(argv[2]);
+                uint16_t disc = string_to_uint16(argv[3]);
+                result = controller::pairing_ble_thread(nodeId, pincode, disc, dataset_tlvs_buf, dataset_tlvs_len);
 #else  // if !CONFIG_ENABLE_ESP32_BLE_CONTROLLER
             }
             else if (strncmp(argv[0], "ble-wifi", sizeof("ble-wifi")) == 0 ||
@@ -351,21 +363,21 @@ namespace esp_matter
             else if (strncmp(argv[0], "code", sizeof("code")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code command");
-                VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *payload = argv[2];
+                VerifyOrReturnError(argc == 2, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *payload = argv[1];
 
                 result = controller::pairing_code(nodeId, payload);
             }
             else if (strncmp(argv[0], "code-thread", sizeof("code-thread")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code and thread command");
-                VerifyOrReturnError(argc == 4, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *payload = argv[3];
+                VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *payload = argv[2];
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
-                if (!convert_hex_str_to_bytes(argv[2], dataset_tlvs_buf, dataset_tlvs_len))
+                if (!convert_hex_str_to_bytes(argv[1], dataset_tlvs_buf, dataset_tlvs_len))
                 {
                     return ESP_ERR_INVALID_ARG;
                 }
@@ -375,26 +387,26 @@ namespace esp_matter
             else if (strncmp(argv[0], "code-wifi", sizeof("code-wifi")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code and wifi command");
-                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *ssid = argv[2];
-                const char *password = argv[3];
-                const char *payload = argv[4];
+                VerifyOrReturnError(argc == 4, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *ssid = argv[1];
+                const char *password = argv[2];
+                const char *payload = argv[3];
 
                 result = controller::pairing_code_wifi(nodeId, ssid, password, payload);
             }
             else if (strncmp(argv[0], "code-wifi-thread", sizeof("code-wifi-thread")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code, wifi and thread command");
-                VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *ssid = argv[2];
-                const char *password = argv[3];
-                const char *payload = argv[4];
+                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
+                //  uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *ssid = argv[1];
+                const char *password = argv[2];
+                const char *payload = argv[3];
 
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
-                if (!convert_hex_str_to_bytes(argv[5], dataset_tlvs_buf, dataset_tlvs_len))
+                if (!convert_hex_str_to_bytes(argv[4], dataset_tlvs_buf, dataset_tlvs_len))
                 {
                     return ESP_ERR_INVALID_ARG;
                 }
@@ -810,7 +822,7 @@ namespace esp_matter
                 {
                     ESP_LOGI(TAG, "subscribe_command sent successfully");
                 }
-
+                // Добавляем атрибут влокальную структуру g_controller
                 handle_attribute_report(
                     &g_controller,             // controller
                     string_to_uint64(argv[0]), // node_id
