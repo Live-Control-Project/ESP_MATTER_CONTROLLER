@@ -18,6 +18,7 @@ extern "C"
         uint32_t attribute_id;
         char attribute_name[32];
         esp_matter_attr_val_t current_value;
+        bool subscribe;
         bool is_subscribed;
     } matter_attribute_t;
 

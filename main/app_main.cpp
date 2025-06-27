@@ -86,9 +86,9 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
         if (event->ThreadConnectivityChange.Result == chip::DeviceLayer::kConnectivity_Established &&
             !attributes_subscribed)
         {
-            subscribe_all_marked_attributes(&g_controller);
-            attributes_subscribed = true;
-            ESP_LOGI(TAG, "Subscribed to all marked attributes after Thread join");
+            //    subscribe_all_marked_attributes(&g_controller);
+            //    attributes_subscribed = true;
+            //    ESP_LOGI(TAG, "Subscribed to all marked attributes after Thread join");
         }
         break;
 

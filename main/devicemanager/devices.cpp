@@ -345,11 +345,11 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
                     break;
                 }
             }
-            attribute->is_subscribed = found;
+            attribute->subscribe = found;
         }
         else
         {
-            attribute->is_subscribed = false;
+            attribute->subscribe = false;
         }
 
         // Сохраняем изменения в NVS если нашли новый атрибут
@@ -369,12 +369,12 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
     {
         if (*need_subscribe)
         {
-            attribute->is_subscribed = true;
+            attribute->subscribe = true;
             ESP_LOGI(TAG_device, "set flag Subscribed to attribute 0x%04X (%s)", attribute_id, AttributeIdToText(cluster_id, attribute_id));
         }
         else
         {
-            attribute->is_subscribed = false;
+            attribute->subscribe = false;
             ESP_LOGI(TAG_device, "set flag Unsubscribed from attribute 0x%04X (%s)", attribute_id, AttributeIdToText(cluster_id, attribute_id));
         }
     }
@@ -751,7 +751,7 @@ esp_err_t subscribe_all_marked_attributes(matter_controller_t *controller)
                         for (uint16_t a = 0; a < cluster->attributes_count; ++a)
                         {
                             matter_attribute_t *attr = &cluster->attributes[a];
-                            if (attr->is_subscribed)
+                            if (attr->subscribe)
                             {
                                 SubscriptionKey key{node->node_id, ep->endpoint_id, cluster->cluster_id, attr->attribute_id};
                                 if (subscribed.find(key) != subscribed.end())
@@ -763,7 +763,7 @@ esp_err_t subscribe_all_marked_attributes(matter_controller_t *controller)
                                          AttributeIdToText(cluster->cluster_id, attr->attribute_id), attr->attribute_id, ClusterIdToText(cluster->cluster_id), cluster->cluster_id, node->node_id, ep->endpoint_id);
 
                                 uint16_t min_interval = 0;
-                                uint16_t max_interval = 10;
+                                uint16_t max_interval = 60;
 
                                 auto *cmd = chip::Platform::New<esp_matter::controller::subscribe_command>(
                                     node->node_id, ep->endpoint_id, cluster->cluster_id, attr->attribute_id,
@@ -816,7 +816,7 @@ void log_cluster_info(const matter_cluster_t *cluster, bool is_client)
         ESP_LOGI(TAG_device, "    Attribute: 0x%04x '%s' - Subscribe: %s",
                  attr->attribute_id,
                  attr_name,
-                 attr->is_subscribed ? "✅" : "➖");
+                 attr->subscribe ? "✅" : "➖");
 
         switch (attr->current_value.type)
         {
@@ -849,7 +849,7 @@ void log_node_info(const matter_node_t *node)
     if (!node)
         return;
 
-    ESP_LOGI(TAG_device, "Node: 0x%016llx", node->node_id);
+    ESP_LOGI(TAG_device, "Node: %llu", node->node_id);
     ESP_LOGI(TAG_device, "  Model: %s, Vendor: %s", node->model_name, node->vendor_name);
     ESP_LOGI(TAG_device, "  Status: %s", node->is_online ? "online" : "offline");
     ESP_LOGI(TAG_device, "  Firmware: %s", node->firmware_version);
@@ -1009,7 +1009,7 @@ esp_err_t save_devices_to_nvs(matter_controller_t *controller)
                 ptr += sizeof(uint32_t);
                 memcpy(ptr, attr->attribute_name, 32);
                 ptr += 32;
-                *((bool *)ptr) = attr->is_subscribed;
+                *((bool *)ptr) = attr->subscribe;
                 ptr += sizeof(bool);
             }
         }
@@ -1035,7 +1035,7 @@ esp_err_t save_devices_to_nvs(matter_controller_t *controller)
                 ptr += sizeof(uint32_t);
                 memcpy(ptr, attr->attribute_name, 32);
                 ptr += 32;
-                *((bool *)ptr) = attr->is_subscribed;
+                *((bool *)ptr) = attr->subscribe;
                 ptr += sizeof(bool);
             }
         }
@@ -1058,6 +1058,9 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
 {
     if (!controller)
         return ESP_ERR_INVALID_ARG;
+
+    // Очищаем старый список устройств перед загрузкой новых
+    matter_controller_free(controller);
 
     nvs_handle_t nvs_handle;
     esp_err_t err;
@@ -1167,7 +1170,7 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
                         ptr += sizeof(uint32_t);
                         memcpy(attr->attribute_name, ptr, 32);
                         ptr += 32;
-                        attr->is_subscribed = *((bool *)ptr);
+                        attr->subscribe = *((bool *)ptr);
                         ptr += sizeof(bool);
                     }
                 }
@@ -1201,7 +1204,7 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
                         ptr += sizeof(uint32_t);
                         memcpy(attr->attribute_name, ptr, 32);
                         ptr += 32;
-                        attr->is_subscribed = *((bool *)ptr);
+                        attr->subscribe = *((bool *)ptr);
                         ptr += sizeof(bool);
                     }
                 }

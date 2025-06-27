@@ -539,6 +539,16 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
                     mqtt_publish_data(eventTopic, "{\"action\":\"thread_start\",\"status\":\"success\"}");
                 }
                 getTLVs(eventTopic);
+                // сохраняем nvs system_settings_t sys_settings;
+                esp_err_t ret = settings_save_to_nvs();
+                if (ret != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "Failed to save system settings to NVS: 0x%x", ret);
+                }
+                else
+                {
+                    ESP_LOGI(TAG, "System settings saved to NVS");
+                }
             }
             else if (strcmp(action_str, "getTLVs") == 0)
             {
@@ -590,14 +600,20 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             }
             else if (strcmp(action_str, "subs-all-attrs") == 0)
             {
-                chip::DeviceLayer::PlatformMgr().LockChipStack();
-                esp_err_t ret = subscribe_all_marked_attributes(&g_controller);
-                chip::DeviceLayer::PlatformMgr().UnlockChipStack();
-
-                if (ret != ESP_OK)
-                {
-                    ESP_LOGE(TAG, "Failed to subscribe to all marked attributes: %s", esp_err_to_name(ret));
-                }
+                chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                    [](intptr_t ctx)
+                    {
+                        esp_err_t ret = subscribe_all_marked_attributes(&g_controller);
+                        if (ret != ESP_OK)
+                        {
+                            ESP_LOGE(TAG, "Failed to subscribe to all marked attributes: %s", esp_err_to_name(ret));
+                        }
+                    },
+                    0);
+            }
+            else if (strcmp(action_str, "log_controller_structure") == 0)
+            {
+                log_controller_structure(&g_controller);
             }
             else
             {
