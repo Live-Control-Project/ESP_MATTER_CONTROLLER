@@ -20,6 +20,9 @@ extern "C"
         esp_matter_attr_val_t current_value;
         bool subscribe;
         bool is_subscribed;
+        uint32_t subs_min_interval;
+        uint32_t subs_max_interval;
+
     } matter_attribute_t;
 
     // Структура кластера
@@ -37,9 +40,11 @@ extern "C"
     {
         uint16_t endpoint_id;
         char endpoint_name[32];
+        uint32_t device_type_id;
+        char device_name[64];
         uint16_t clusters[16]; // Массив ID кластеров (увеличьте размер при необходимости)
         uint8_t cluster_count; // Количество кластеров в массиве
-    } matter_endpoint_t;
+    } endpoint_entry_t;
 
     // Структура узла (устройства)
     typedef struct matter_node
@@ -52,8 +57,9 @@ extern "C"
         uint32_t vendor_id;
         char firmware_version[32];
         uint16_t product_id;
+        bool reachable;
 
-        matter_endpoint_t *endpoints;
+        endpoint_entry_t *endpoints;
         uint16_t endpoints_count;
 
         matter_cluster_t *server_clusters;
@@ -63,13 +69,15 @@ extern "C"
         uint16_t client_clusters_count;
 
         struct matter_node *next;
-    } matter_node_t;
+    } matter_node;
+
+    typedef matter_node matter_device_t;
 
     // Основная структура контроллера
     typedef struct
     {
         uint32_t magic;
-        matter_node_t *nodes_list;
+        matter_device_t *nodes_list;
         uint16_t nodes_count;
         uint64_t controller_node_id;
         uint16_t fabric_id;
@@ -89,9 +97,9 @@ extern "C"
      *
      * @param controller Указатель на структуру контроллера
      * @param node_id Идентификатор узла для поиска
-     * @return matter_node_t* Найденный узел или NULL
+     * @return matter_device_t* Найденный узел или NULL
      */
-    matter_node_t *find_node(matter_controller_t *controller, uint64_t node_id);
+    matter_device_t *find_node(matter_controller_t *controller, uint64_t node_id);
 
     /**
      * @brief Добавление нового узла
@@ -100,9 +108,9 @@ extern "C"
      * @param node_id Идентификатор нового узла
      * @param model_name Название модели устройства
      * @param vendor_name Название производителя
-     * @return matter_node_t* Указатель на созданный узел или NULL при ошибке
+     * @return matter_device_t* Указатель на созданный узел или NULL при ошибке
      */
-    matter_node_t *add_node(matter_controller_t *controller, uint64_t node_id, const char *model_name, const char *vendor_name);
+    matter_device_t *add_node(matter_controller_t *controller, uint64_t node_id, const char *model_name, const char *vendor_name);
 
     /**
      * @brief Добавление endpoint к узлу
@@ -110,9 +118,9 @@ extern "C"
      * @param node Указатель на узел
      * @param endpoint_id Идентификатор endpoint
      * @param endpoint_name Имя endpoint (может быть NULL)
-     * @return matter_endpoint_t* Указатель на созданный endpoint или NULL при ошибке
+     * @return endpoint_entry_t* Указатель на созданный endpoint или NULL при ошибке
      */
-    matter_endpoint_t *add_endpoint(matter_node_t *node, uint16_t endpoint_id, const char *endpoint_name);
+    endpoint_entry_t *add_endpoint(matter_device_t *node, uint16_t endpoint_id, const char *endpoint_name);
 
     /**
      * @brief Добавление кластера к узлу
@@ -123,7 +131,7 @@ extern "C"
      * @param is_client Флаг, является ли кластер клиентским
      * @return matter_cluster_t* Указатель на созданный кластер или NULL при ошибке
      */
-    matter_cluster_t *add_cluster(matter_node_t *node, uint32_t cluster_id, const char *cluster_name, bool is_client);
+    matter_cluster_t *add_cluster(matter_device_t *node, uint32_t cluster_id, const char *cluster_name, bool is_client);
 
     /**
      * @brief Добавление атрибута к кластеру
@@ -177,7 +185,7 @@ extern "C"
      *
      * @param node Указатель на узел
      */
-    void log_node_info(const matter_node_t *node);
+    void log_node_info(const matter_device_t *node);
 
     /**
      * @brief Логирование информации о кластере

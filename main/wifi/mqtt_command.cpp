@@ -169,6 +169,10 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
             result = esp_matter::command::controller_shutdown_all_subscriptions(argc, argv);
             chip::DeviceLayer::PlatformMgr().UnlockChipStack();
         }
+        if (strcmp(action_type, "remove-node") == 0)
+        {
+            remove_device(&g_controller, strtoull(argv[0], nullptr, 16));
+        }
         // Prepare MQTT payload
 
         if (result != ESP_OK)
@@ -614,6 +618,10 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
             else if (strcmp(action_str, "log_controller_structure") == 0)
             {
                 log_controller_structure(&g_controller);
+            }
+            else if (strcmp(action_str, "remove-node") == 0)
+            {
+                handle_command(json, "remove-node", eventTopic);
             }
             else
             {

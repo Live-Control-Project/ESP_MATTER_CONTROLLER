@@ -81,7 +81,7 @@ namespace esp_matter
         void on_commissioning_success_callback(chip::ScopedNodeId peer_id)
         {
             // параметры NodeId и FabricIndex перепутаны местами при создании объекта ScopedNodeId
-            // Правильный порядок аргументов вesp_matter_controller_pairing_command.cpp:
+            // Правильный порядок аргументов в esp_matter_controller_pairing_command.cpp:
             // 1. NodeId (должен быть первым)
             // 2. FabricIndex (должен быть вторым)
             // m_callbacks.commissioning_success_callback(
@@ -119,7 +119,7 @@ namespace esp_matter
             }
             else
             {
-                ESP_LOGI(TAG, "Successfully read Node structure for node 0x%" PRIu64, nodeId);
+                ESP_LOGI(TAG, "read Node structure for node 0x%" PRIu64, nodeId);
             }
         }
 
@@ -134,7 +134,7 @@ namespace esp_matter
             ESP_LOGE(TAG, "Commissioning failed for node 0x%" PRIX64 " (fabric 0x%" PRIX32 ") at stage %d: %" CHIP_ERROR_FORMAT,
                      nodeId, fabricIndex, static_cast<int>(stage), error.Format());
 
-                        // MQTT уведомление
+            // MQTT уведомление
             const char *mqttPrefix = sys_settings.mqtt.prefix;
             const char *envtopic = "/event/matter/";
             char eventTopic[128];
@@ -323,7 +323,7 @@ namespace esp_matter
             }
             else
             {
-                nodeId = chip::kTestDeviceNodeId; // начнем с тестового ID
+                nodeId = 12344321; // chip::kTestDeviceNodeId; // начнем с тестового ID
             }
 
             if (strncmp(argv[0], "onnetwork", sizeof("onnetwork")) == 0)
