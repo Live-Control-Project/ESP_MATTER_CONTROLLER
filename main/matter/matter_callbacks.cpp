@@ -20,6 +20,7 @@
 #include <cstring>
 #include <cstdio>
 #include <inttypes.h>
+#include <platform/PlatformManager.h>
 
 static const char *TAG = "AttributeCallback";
 
@@ -40,7 +41,30 @@ static constexpr uint32_t BASIC_CLUSTER_ID = 0x0028;
 
 static std::unordered_map<uint64_t, std::unordered_set<uint16_t>> processed_endpoints;
 
+// schedule_controller_request_attribute(node_id, endpoint_id, cluster_id, attribute_id, command_type);
+void schedule_controller_request_attribute(uint64_t node_id, uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_or_event_id, esp_matter::controller::read_command_type_t command_type)
+{
+    // Копируем параметры в heap, чтобы они были доступны внутри лямбды
+    auto *params = new std::tuple<uint64_t, uint16_t, uint32_t, uint32_t, esp_matter::controller::read_command_type_t>(
+        node_id, endpoint_id, cluster_id, attribute_or_event_id, command_type);
+
+    chip::DeviceLayer::PlatformMgr().ScheduleWork(
+        [](intptr_t arg)
+        {
+            auto *params = reinterpret_cast<std::tuple<uint64_t, uint16_t, uint32_t, uint32_t, esp_matter::controller::read_command_type_t> *>(arg);
+            esp_matter::command::controller_request_attribute(
+                std::get<0>(*params),
+                std::get<1>(*params),
+                std::get<2>(*params),
+                std::get<3>(*params),
+                std::get<4>(*params));
+            delete params;
+        },
+        reinterpret_cast<intptr_t>(params));
+}
+
 // ---------------- очередь запросов на чтение атрибутов ----------------
+/*
 struct AttributeRequest
 {
     uint64_t node_id;
@@ -53,6 +77,8 @@ struct AttributeRequest
 static std::queue<AttributeRequest> attribute_request_queue;
 static std::mutex attribute_queue_mutex;
 static bool attribute_request_in_progress = false;
+
+//
 
 // Функция для добавления запроса в очередь
 void enqueue_attribute_request(uint64_t node_id, uint16_t endpoint_id, uint32_t cluster_id, uint32_t attribute_id, esp_matter::controller::read_command_type_t type)
@@ -106,17 +132,36 @@ extern "C" void OnReadDone(
         attribute_request_in_progress = false;
     }
 }
+    */
 // ---------------- очередь запросов на чтение атрибутов ----------------
 
 //-------------------------------------------------------------------------
+
+// Вызов из OnReadDone
+extern "C" void OnReadDone(
+    uint64_t node_id,
+    const chip::Platform::ScopedMemoryBufferWithSize<chip::app::AttributePathParams> &attr_paths,
+    const chip::Platform::ScopedMemoryBufferWithSize<chip::app::EventPathParams> &event_paths)
+{
+    for (size_t i = 0; i < attr_paths.AllocatedSize(); ++i)
+    {
+        const auto &path = attr_paths[i];
+        ESP_LOGI(TAG, "readDone Attribute: endpoint=0x%04x, cluster=0x%08" PRIx32 ", attribute=0x%08" PRIx32,
+                 path.mEndpointId, path.mClusterId, path.mAttributeId);
+    }
+}
 // Основной обработчик атрибутов
 void OnAttributeData(uint64_t node_id,
                      const chip::app::ConcreteDataAttributePath &path,
                      chip::TLV::TLVReader *data)
 {
+
     ESP_LOGI(TAG, "⏪ Attribute report from Node: %" PRIu64 ", Endpoint: %u, Cluster (%s): 0x%" PRIx32 ", Attribute (%s): 0x%" PRIx32,
-             node_id, path.mEndpointId, ClusterIdToText(path.mClusterId), path.mClusterId,
-             AttributeIdToText(path.mClusterId, path.mAttributeId), path.mAttributeId);
+             node_id, path.mEndpointId,
+             ClusterIdToText(path.mClusterId) ? ClusterIdToText(path.mClusterId) : "Unknown",
+             path.mClusterId,
+             AttributeIdToText(path.mClusterId, path.mAttributeId) ? AttributeIdToText(path.mClusterId, path.mAttributeId) : "Unknown",
+             path.mAttributeId);
 
     if (!data)
     {
@@ -139,7 +184,7 @@ void OnAttributeData(uint64_t node_id,
         handleClusterList(node_id, path, data, &g_controller);
         return;
     }
-    matter_node_t *node = find_node(&g_controller, node_id);
+    matter_device_t *node = find_node(&g_controller, node_id);
     if (!node)
     {
         ESP_LOGE(TAG, "Node %" PRIu64 " not found", node_id);
@@ -204,11 +249,13 @@ void OnAttributeData(uint64_t node_id,
                     {
                         log_controller_structure(&g_controller);
 
+                        /*
                         esp_err_t ret = subscribe_all_marked_attributes(&g_controller);
                         if (ret != ESP_OK)
                         {
                             ESP_LOGE(TAG, "Failed to subscribe to all marked attributes: %s", esp_err_to_name(ret));
                         }
+                        */
                     }
                 }
             }
@@ -372,9 +419,18 @@ void OnAttributeData(uint64_t node_id,
     if (err == CHIP_NO_ERROR)
     {
         // Сначала проверяем wildcard
+        // Сначала проверяем wildcard
         if (path.mAttributeId == 0xFFFFFFFF)
         {
             ESP_LOGW(TAG, "Skip handle_attribute_report for wildcard attribute");
+            return;
+        }
+
+        // Защита: если строка пуста, не передавать nullptr
+        if ((attr_val.type == ESP_MATTER_VAL_TYPE_CHAR_STRING || attr_val.type == ESP_MATTER_VAL_TYPE_OCTET_STRING) &&
+            (attr_val.val.a.b == nullptr || attr_val.val.a.s == 0))
+        {
+            ESP_LOGW(TAG, "Skip handle_attribute_report: empty string or null pointer");
             return;
         }
 
@@ -400,7 +456,18 @@ static esp_err_t readBasicInformation(uint64_t node_id)
     {
         ESP_LOGI(TAG, "Reading attribute %s (%zu/%zu)", attributes[i], i + 1, attr_count);
         uint32_t attr_id = strtoul(attributes[i], nullptr, 0);
-        enqueue_attribute_request(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
+        // enqueue_attribute_request(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
+        // esp_matter::command::controller_request_attribute(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
+        schedule_controller_request_attribute(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
+
+        if (i == attr_count - 1)
+        {
+            ESP_LOGI(TAG, "Last attribute read request sent for node %" PRIu64, node_id);
+        }
+        else
+        {
+            ESP_LOGI(TAG, "Next attribute read request will be sent after the current one completes");
+        }
     }
     return ESP_OK;
 }
@@ -460,14 +527,18 @@ static esp_err_t readClustersForEndpoint(uint64_t node_id, uint16_t endpoint, co
     snprintf(endpoint_str, sizeof(endpoint_str), "%u", endpoint);
 
     uint32_t cluster_id = strtoul(cluster_type, nullptr, 0);
-    enqueue_attribute_request(node_id, endpoint, DESCRIPTOR_CLUSTER_ID, cluster_id, esp_matter::controller::READ_ATTRIBUTE);
+    // enqueue_attribute_request(node_id, endpoint, DESCRIPTOR_CLUSTER_ID, cluster_id, esp_matter::controller::READ_ATTRIBUTE);
+    // esp_matter::command::controller_request_attribute(node_id, endpoint, DESCRIPTOR_CLUSTER_ID, cluster_id, esp_matter::controller::READ_ATTRIBUTE);
+    schedule_controller_request_attribute(node_id, endpoint, DESCRIPTOR_CLUSTER_ID, cluster_id, esp_matter::controller::READ_ATTRIBUTE);
+
+    ESP_LOGI(TAG, "Reading %s clusters for endpoint %u on node %" PRIu64, cluster_type, endpoint, node_id);
     return ESP_OK;
 }
 
 // другой вариант. Не используется
 static void read_all_clusters_for_endpoint(uint64_t node_id, uint16_t endpoint_id, matter_controller_t *controller)
 {
-    matter_node_t *node = find_node(controller, node_id);
+    matter_device_t *node = find_node(controller, node_id);
     if (!node)
     {
         ESP_LOGE(TAG, "Node with ID %" PRIu64 " not found", node_id);
@@ -476,7 +547,7 @@ static void read_all_clusters_for_endpoint(uint64_t node_id, uint16_t endpoint_i
 
     for (int i = 0; i < node->endpoints_count; ++i)
     {
-        matter_endpoint_t *ep = &node->endpoints[i];
+        endpoint_entry_t *ep = &node->endpoints[i];
         if (ep->endpoint_id != endpoint_id)
             continue;
         ESP_LOGI(TAG, "Reading clusters for endpoint %u on node %" PRIu64, endpoint_id, node_id);
@@ -505,7 +576,12 @@ static esp_err_t readAttributesForCluster(uint64_t node_id, uint16_t endpoint_id
         ESP_LOGE(TAG, "Controller is NULL");
         return ESP_ERR_INVALID_ARG;
     }
-    enqueue_attribute_request(node_id, endpoint_id, cluster_id, 0xFFFFFFFF, esp_matter::controller::READ_ATTRIBUTE);
+    // enqueue_attribute_request(node_id, endpoint_id, cluster_id, 0xFFFFFFFF, esp_matter::controller::READ_ATTRIBUTE);
+    // esp_matter::command::controller_request_attribute(node_id, endpoint_id, cluster_id, 0xFFFFFFFF, esp_matter::controller::READ_ATTRIBUTE);
+    schedule_controller_request_attribute(node_id, endpoint_id, cluster_id, 0xFFFFFFFF, esp_matter::controller::READ_ATTRIBUTE);
+
+    ESP_LOGI(TAG, "Reading all attributes for cluster 0x%04X on endpoint %u of node %" PRIu64,
+             cluster_id, endpoint_id, node_id);
     return ESP_OK;
 }
 
@@ -552,7 +628,7 @@ static void handleClusterList(uint64_t node_id,
     }
     data->ExitContainer(outerType);
 
-    matter_node_t *node = find_node(controller, node_id);
+    matter_device_t *node = find_node(controller, node_id);
     if (!node)
     {
         ESP_LOGE(TAG, "Node %" PRIu64 " not found", node_id);
@@ -562,7 +638,7 @@ static void handleClusterList(uint64_t node_id,
     {
         for (int i = 0; i < node->endpoints_count; ++i)
         {
-            matter_endpoint_t *ep = &node->endpoints[i];
+            endpoint_entry_t *ep = &node->endpoints[i];
             if (ep->endpoint_id == path.mEndpointId)
             {
                 ep->cluster_count = std::min((int)clusters.size(), (int)(sizeof(ep->clusters) / sizeof(ep->clusters[0])));

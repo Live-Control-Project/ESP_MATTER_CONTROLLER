@@ -11,6 +11,8 @@
 #include "matter_callbacks.h"
 #include <esp_matter_controller_subscribe_command.h>
 #include <set>
+#include "app_priv.h"
+#include "app_matter_ctrl.h"
 #define NVS_NAMESPACE "matter_devices"
 #define NVS_KEY "devices_list"
 
@@ -50,12 +52,13 @@ void matter_controller_init(matter_controller_t *controller, uint64_t controller
     {
         ESP_LOGW(TAG_device, "No saved devices found in NVS (err: 0x%x)", load_err);
     }
+    //  log_controller_structure(&g_controller);
 }
 
 // Поиск узла по ID
-matter_node_t *find_node(matter_controller_t *controller, uint64_t node_id)
+matter_device_t *find_node(matter_controller_t *controller, uint64_t node_id)
 {
-    matter_node_t *current = controller->nodes_list;
+    matter_device_t *current = controller->nodes_list;
     while (current != NULL)
     {
         if (current->node_id == node_id)
@@ -68,13 +71,13 @@ matter_node_t *find_node(matter_controller_t *controller, uint64_t node_id)
 }
 
 // Добавление нового узла
-matter_node_t *add_node(matter_controller_t *controller, uint64_t node_id, const char *model_name, const char *vendor_name)
+matter_device_t *add_node(matter_controller_t *controller, uint64_t node_id, const char *model_name, const char *vendor_name)
 {
-    matter_node_t *new_node = (matter_node_t *)malloc(sizeof(matter_node_t));
+    matter_device_t *new_node = (matter_device_t *)malloc(sizeof(matter_device_t));
     if (!new_node)
         return NULL;
 
-    memset(new_node, 0, sizeof(matter_node_t));
+    memset(new_node, 0, sizeof(matter_device_t));
     new_node->node_id = node_id;
     new_node->is_online = true;
     strncpy(new_node->model_name, model_name, sizeof(new_node->model_name) - 1);
@@ -86,16 +89,16 @@ matter_node_t *add_node(matter_controller_t *controller, uint64_t node_id, const
 }
 
 // Добавление endpoint к узлу
-matter_endpoint_t *add_endpoint(matter_node_t *node, uint16_t endpoint_id, const char *endpoint_name)
+endpoint_entry_t *add_endpoint(matter_device_t *node, uint16_t endpoint_id, const char *endpoint_name)
 {
-    matter_endpoint_t *new_endpoints = (matter_endpoint_t *)realloc(node->endpoints,
-                                                                    (node->endpoints_count + 1) * sizeof(matter_endpoint_t));
+    endpoint_entry_t *new_endpoints = (endpoint_entry_t *)realloc(node->endpoints,
+                                                                  (node->endpoints_count + 1) * sizeof(endpoint_entry_t));
     if (!new_endpoints)
         return NULL;
 
     node->endpoints = new_endpoints;
-    matter_endpoint_t *ep = &node->endpoints[node->endpoints_count];
-    memset(ep, 0, sizeof(matter_endpoint_t));
+    endpoint_entry_t *ep = &node->endpoints[node->endpoints_count];
+    memset(ep, 0, sizeof(endpoint_entry_t));
     ep->endpoint_id = endpoint_id;
     if (endpoint_name)
     {
@@ -106,7 +109,7 @@ matter_endpoint_t *add_endpoint(matter_node_t *node, uint16_t endpoint_id, const
 }
 
 // Добавление кластера к узлу
-matter_cluster_t *add_cluster(matter_node_t *node, uint32_t cluster_id, const char *cluster_name, bool is_client)
+matter_cluster_t *add_cluster(matter_device_t *node, uint32_t cluster_id, const char *cluster_name, bool is_client)
 {
     matter_cluster_t **clusters = is_client ? &node->client_clusters : &node->server_clusters;
     uint16_t *count = is_client ? &node->client_clusters_count : &node->server_clusters_count;
@@ -227,7 +230,7 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
     }
 
     // Находим или создаем узел (если node_id валиден)
-    matter_node_t *node = find_node(controller, node_id);
+    matter_device_t *node = find_node(controller, node_id);
     if (!node)
     {
         node = add_node(controller, node_id, "Unknown Model", "Unknown Vendor");
@@ -240,7 +243,7 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
     }
 
     // Обработка endpoint (если endpoint_id валиден)
-    matter_endpoint_t *endpoint = NULL;
+    endpoint_entry_t *endpoint = NULL;
     for (uint16_t i = 0; i < node->endpoints_count; i++)
     {
         if (node->endpoints[i].endpoint_id == endpoint_id)
@@ -345,11 +348,11 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
                     break;
                 }
             }
-            attribute->is_subscribed = found;
+            attribute->subscribe = found;
         }
         else
         {
-            attribute->is_subscribed = false;
+            attribute->subscribe = false;
         }
 
         // Сохраняем изменения в NVS если нашли новый атрибут
@@ -369,12 +372,12 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
     {
         if (*need_subscribe)
         {
-            attribute->is_subscribed = true;
+            attribute->subscribe = true;
             ESP_LOGI(TAG_device, "set flag Subscribed to attribute 0x%04X (%s)", attribute_id, AttributeIdToText(cluster_id, attribute_id));
         }
         else
         {
-            attribute->is_subscribed = false;
+            attribute->subscribe = false;
             ESP_LOGI(TAG_device, "set flag Unsubscribed from attribute 0x%04X (%s)", attribute_id, AttributeIdToText(cluster_id, attribute_id));
         }
     }
@@ -384,13 +387,29 @@ void handle_attribute_report(matter_controller_t *controller, uint64_t node_id,
         //  ESP_LOGW(TAG_device, "Attribute value is NULL, skipping update");
         return;
     }
-
+    // Защита для строковых типов: не обновлять, если строка пуста или указатель NULL
+    // if ((value->type == ESP_MATTER_VAL_TYPE_CHAR_STRING || value->type == ESP_MATTER_VAL_TYPE_OCTET_STRING) &&
+    //    (value->val.a.b == nullptr || value->val.a.s == 0))
+    //{
+    //    ESP_LOGW(TAG_device, "Skip update: empty string or null pointer for attribute 0x%04X", attribute_id);
+    //    return;
+    //}
+    // если пришли данные значит подписка уже произошла
+    if (attribute->subscribe == true && !attribute->is_subscribed)
+    {
+        attribute->is_subscribed = true;
+        //    ESP_LOGI(TAG_device,
+        //             "successful subscribed: node: %" PRIu64 ", Endpoint: %u, Cluster (%s): 0x%" PRIx32 ", Attribute (%s): 0x%" PRIx32,
+        //             node,
+        //             endpoint_id,
+        //             ClusterIdToText(cluster_id) ? ClusterIdToText(cluster_id) : "Unknown",
+        //             cluster_id,
+        //             AttributeIdToText(cluster_id, attribute_id) ? AttributeIdToText(cluster_id, attribute_id) : "Unknown",
+        //             attribute_id);
+    }
     // Обновляем значение атрибута
     memcpy(&attribute->current_value, value, sizeof(esp_matter_attr_val_t));
-
     publish_fd(&g_controller, node_id, endpoint_id, cluster_id, attribute_id);
-
-    // ESP_LOGI(TAG_device, "Attribute updated 0x%04X (%s)", attribute_id, AttributeIdToText(cluster_id, attribute_id));
 }
 
 esp_err_t remove_device(matter_controller_t *controller, uint64_t node_id)
@@ -402,8 +421,8 @@ esp_err_t remove_device(matter_controller_t *controller, uint64_t node_id)
         return ESP_ERR_INVALID_ARG;
     }
 
-    matter_node_t *current = controller->nodes_list;
-    matter_node_t *prev = NULL;
+    matter_device_t *current = controller->nodes_list;
+    matter_device_t *prev = NULL;
     bool found = false;
 
     // Поиск устройства в списке
@@ -488,10 +507,10 @@ esp_err_t remove_device(matter_controller_t *controller, uint64_t node_id)
 // Освобождение памяти
 void matter_controller_free(matter_controller_t *controller)
 {
-    matter_node_t *current = controller->nodes_list;
+    matter_device_t *current = controller->nodes_list;
     while (current != NULL)
     {
-        matter_node_t *next = current->next;
+        matter_device_t *next = current->next;
 
         // Освобождаем endpoints
         if (current->endpoints)
@@ -578,7 +597,7 @@ esp_err_t publish_fd(matter_controller_t *controller, uint64_t node_id,
     char fdTopic[MAX_TOPIC_LEN];
     char value_str[64]; // Буфер для значений атрибутов
 
-    matter_node_t *node = controller->nodes_list;
+    matter_device_t *node = controller->nodes_list;
     while (node)
     {
         // Проверяем node_id
@@ -593,7 +612,7 @@ esp_err_t publish_fd(matter_controller_t *controller, uint64_t node_id,
 
         for (uint16_t ep_idx = 0; ep_idx < node->endpoints_count; ++ep_idx)
         {
-            matter_endpoint_t *ep = &node->endpoints[ep_idx];
+            endpoint_entry_t *ep = &node->endpoints[ep_idx];
 
             // Проверяем endpoint_id
             if (ep->endpoint_id != endpoint_id)
@@ -734,12 +753,12 @@ esp_err_t subscribe_all_marked_attributes(matter_controller_t *controller)
 
     std::set<SubscriptionKey> subscribed;
 
-    matter_node_t *node = controller->nodes_list;
+    matter_device_t *node = controller->nodes_list;
     while (node)
     {
         for (uint16_t ep_idx = 0; ep_idx < node->endpoints_count; ++ep_idx)
         {
-            matter_endpoint_t *ep = &node->endpoints[ep_idx];
+            endpoint_entry_t *ep = &node->endpoints[ep_idx];
             for (uint8_t cl_idx = 0; cl_idx < ep->cluster_count; ++cl_idx)
             {
                 uint32_t cluster_id = ep->clusters[cl_idx];
@@ -751,7 +770,7 @@ esp_err_t subscribe_all_marked_attributes(matter_controller_t *controller)
                         for (uint16_t a = 0; a < cluster->attributes_count; ++a)
                         {
                             matter_attribute_t *attr = &cluster->attributes[a];
-                            if (attr->is_subscribed)
+                            if (attr->subscribe)
                             {
                                 SubscriptionKey key{node->node_id, ep->endpoint_id, cluster->cluster_id, attr->attribute_id};
                                 if (subscribed.find(key) != subscribed.end())
@@ -763,7 +782,7 @@ esp_err_t subscribe_all_marked_attributes(matter_controller_t *controller)
                                          AttributeIdToText(cluster->cluster_id, attr->attribute_id), attr->attribute_id, ClusterIdToText(cluster->cluster_id), cluster->cluster_id, node->node_id, ep->endpoint_id);
 
                                 uint16_t min_interval = 0;
-                                uint16_t max_interval = 10;
+                                uint16_t max_interval = 60;
 
                                 auto *cmd = chip::Platform::New<esp_matter::controller::subscribe_command>(
                                     node->node_id, ep->endpoint_id, cluster->cluster_id, attr->attribute_id,
@@ -816,7 +835,7 @@ void log_cluster_info(const matter_cluster_t *cluster, bool is_client)
         ESP_LOGI(TAG_device, "    Attribute: 0x%04x '%s' - Subscribe: %s",
                  attr->attribute_id,
                  attr_name,
-                 attr->is_subscribed ? "✅" : "➖");
+                 attr->subscribe ? "✅" : "➖");
 
         switch (attr->current_value.type)
         {
@@ -844,12 +863,12 @@ void log_cluster_info(const matter_cluster_t *cluster, bool is_client)
     }
 }
 
-void log_node_info(const matter_node_t *node)
+void log_node_info(const matter_device_t *node)
 {
     if (!node)
         return;
 
-    ESP_LOGI(TAG_device, "Node: 0x%016llx", node->node_id);
+    ESP_LOGI(TAG_device, "Node: %llu", node->node_id);
     ESP_LOGI(TAG_device, "  Model: %s, Vendor: %s", node->model_name, node->vendor_name);
     ESP_LOGI(TAG_device, "  Status: %s", node->is_online ? "online" : "offline");
     ESP_LOGI(TAG_device, "  Firmware: %s", node->firmware_version);
@@ -857,7 +876,7 @@ void log_node_info(const matter_node_t *node)
     // Логирование endpoint'ов
     for (uint16_t i = 0; i < node->endpoints_count; i++)
     {
-        const matter_endpoint_t *ep = &node->endpoints[i];
+        const endpoint_entry_t *ep = &node->endpoints[i];
         ESP_LOGI(TAG_device, "  Endpoint: %d ", ep->endpoint_id);
 
         // Логирование серверных кластеров
@@ -884,7 +903,7 @@ void log_controller_structure(const matter_controller_t *controller)
     ESP_LOGI(TAG_device, "Fabric ID: %d", controller->fabric_id);
     ESP_LOGI(TAG_device, "Connected nodes: %d", controller->nodes_count);
 
-    const matter_node_t *node = controller->nodes_list;
+    const matter_device_t *node = controller->nodes_list;
     while (node)
     {
         log_node_info(node);
@@ -911,7 +930,7 @@ esp_err_t save_devices_to_nvs(matter_controller_t *controller)
 
     // --- Подсчет размера ---
     size_t required_size = sizeof(uint16_t); // nodes_count
-    matter_node_t *current = controller->nodes_list;
+    matter_device_t *current = controller->nodes_list;
     while (current)
     {
         required_size += sizeof(uint64_t) + sizeof(bool) + 32 + 64 + 32 + sizeof(uint32_t) + 32 + sizeof(uint16_t);
@@ -977,7 +996,7 @@ esp_err_t save_devices_to_nvs(matter_controller_t *controller)
         ptr += sizeof(uint16_t);
         for (uint16_t e = 0; e < current->endpoints_count; e++)
         {
-            matter_endpoint_t *ep = &current->endpoints[e];
+            endpoint_entry_t *ep = &current->endpoints[e];
             *((uint16_t *)ptr) = ep->endpoint_id;
             ptr += sizeof(uint16_t);
             memcpy(ptr, ep->endpoint_name, 32);
@@ -1009,7 +1028,7 @@ esp_err_t save_devices_to_nvs(matter_controller_t *controller)
                 ptr += sizeof(uint32_t);
                 memcpy(ptr, attr->attribute_name, 32);
                 ptr += 32;
-                *((bool *)ptr) = attr->is_subscribed;
+                *((bool *)ptr) = attr->subscribe;
                 ptr += sizeof(bool);
             }
         }
@@ -1035,7 +1054,7 @@ esp_err_t save_devices_to_nvs(matter_controller_t *controller)
                 ptr += sizeof(uint32_t);
                 memcpy(ptr, attr->attribute_name, 32);
                 ptr += 32;
-                *((bool *)ptr) = attr->is_subscribed;
+                *((bool *)ptr) = attr->subscribe;
                 ptr += sizeof(bool);
             }
         }
@@ -1058,6 +1077,9 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
 {
     if (!controller)
         return ESP_ERR_INVALID_ARG;
+
+    // Очищаем старый список устройств перед загрузкой новых
+    matter_controller_free(controller);
 
     nvs_handle_t nvs_handle;
     esp_err_t err;
@@ -1096,7 +1118,7 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
 
     for (uint16_t i = 0; i < nodes_count; i++)
     {
-        matter_node_t *node = (matter_node_t *)calloc(1, sizeof(matter_node_t));
+        matter_device_t *node = (matter_device_t *)calloc(1, sizeof(matter_device_t));
         if (!node)
         {
             free(buffer);
@@ -1125,10 +1147,10 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
         ptr += sizeof(uint16_t);
         if (node->endpoints_count > 0)
         {
-            node->endpoints = (matter_endpoint_t *)calloc(node->endpoints_count, sizeof(matter_endpoint_t));
+            node->endpoints = (endpoint_entry_t *)calloc(node->endpoints_count, sizeof(endpoint_entry_t));
             for (uint16_t e = 0; e < node->endpoints_count; e++)
             {
-                matter_endpoint_t *ep = &node->endpoints[e];
+                endpoint_entry_t *ep = &node->endpoints[e];
                 ep->endpoint_id = *((uint16_t *)ptr);
                 ptr += sizeof(uint16_t);
                 memcpy(ep->endpoint_name, ptr, 32);
@@ -1167,7 +1189,7 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
                         ptr += sizeof(uint32_t);
                         memcpy(attr->attribute_name, ptr, 32);
                         ptr += 32;
-                        attr->is_subscribed = *((bool *)ptr);
+                        attr->subscribe = *((bool *)ptr);
                         ptr += sizeof(bool);
                     }
                 }
@@ -1201,7 +1223,7 @@ esp_err_t load_devices_from_nvs(matter_controller_t *controller)
                         ptr += sizeof(uint32_t);
                         memcpy(attr->attribute_name, ptr, 32);
                         ptr += 32;
-                        attr->is_subscribed = *((bool *)ptr);
+                        attr->subscribe = *((bool *)ptr);
                         ptr += sizeof(bool);
                     }
                 }

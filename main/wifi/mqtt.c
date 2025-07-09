@@ -97,6 +97,11 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
     char completeTopicIN[strlen(mqttPrefixIN) + strlen(topicIN) + 1];
     strcpy(completeTopicIN, mqttPrefixIN);
     strcat(completeTopicIN, topicIN);
+    const char *topicIN_csa = "/td/matter_csa/#";
+    char completeTopicIN_csa[strlen(mqttPrefixIN) + strlen(topicIN_csa) + 1];
+    strcpy(completeTopicIN_csa, mqttPrefixIN);
+    strcat(completeTopicIN_csa, topicIN_csa);
+
     
     size_t topic_len = strlen(mqttPrefixIN) + strlen("/command/matter") + 1;
     char commandTopic[topic_len];
@@ -114,6 +119,8 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
         MQTT_CONNEECTED = 1;
         msg_id = esp_mqtt_client_subscribe(client, completeTopicIN, 0);
         ESP_LOGI(TAG, "subscribe successful to %s, msg_id=%d", completeTopicIN, msg_id);
+        msg_id = esp_mqtt_client_subscribe(client, completeTopicIN_csa, 0);
+        ESP_LOGI(TAG, "subscribe successful to %s, msg_id=%d", completeTopicIN_csa, msg_id);
         msg_id = esp_mqtt_client_subscribe(client, commandTopic, 0);
         ESP_LOGI(TAG, "subscribe successful to %s, msg_id=%d", commandTopic, msg_id);
         sys_settings.mqtt.mqtt_connected = true;

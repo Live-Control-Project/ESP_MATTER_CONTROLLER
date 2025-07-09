@@ -76,15 +76,18 @@ namespace esp_matter
             ESP_LOGI(TAG, "PASE session %s", err == CHIP_NO_ERROR ? "success" : "failed");
         }
 
+        static bool pairing_in_progress = false;
+
         void on_commissioning_success_callback(chip::ScopedNodeId peer_id)
         {
             // параметры NodeId и FabricIndex перепутаны местами при создании объекта ScopedNodeId
-            // Правильный порядок аргументов вesp_matter_controller_pairing_command.cpp:
+            // Правильный порядок аргументов в esp_matter_controller_pairing_command.cpp:
             // 1. NodeId (должен быть первым)
             // 2. FabricIndex (должен быть вторым)
             // m_callbacks.commissioning_success_callback(
             //    chip::ScopedNodeId(peerId.GetNodeId(), fabric->GetFabricIndex())
             //);
+            pairing_in_progress = false;
             uint64_t nodeId = peer_id.GetNodeId();
             uint32_t fabricIndex = peer_id.GetFabricIndex();
 
@@ -116,7 +119,7 @@ namespace esp_matter
             }
             else
             {
-                ESP_LOGI(TAG, "Successfully read Node structure for node 0x%" PRIu64, nodeId);
+                ESP_LOGI(TAG, "read Node structure for node 0x%" PRIu64, nodeId);
             }
         }
 
@@ -124,14 +127,14 @@ namespace esp_matter
             chip::ScopedNodeId peer_id, CHIP_ERROR error, chip::Controller::CommissioningStage stage,
             std::optional<chip::Credentials::AttestationVerificationResult> additional_err_info)
         {
-            // CORRECTED: Use GetNodeId() instead of GetFabricIndex()
+            pairing_in_progress = false;
             uint64_t nodeId = peer_id.GetNodeId();
             uint32_t fabricIndex = peer_id.GetFabricIndex();
 
             ESP_LOGE(TAG, "Commissioning failed for node 0x%" PRIX64 " (fabric 0x%" PRIX32 ") at stage %d: %" CHIP_ERROR_FORMAT,
                      nodeId, fabricIndex, static_cast<int>(stage), error.Format());
 
-            // Form topic
+            // MQTT уведомление
             const char *mqttPrefix = sys_settings.mqtt.prefix;
             const char *envtopic = "/event/matter/";
             char eventTopic[128];
@@ -294,7 +297,14 @@ namespace esp_matter
 #if CONFIG_ESP_MATTER_COMMISSIONER_ENABLE
         esp_err_t controller_pairing(int argc, char **argv)
         {
-            VerifyOrReturnError(argc >= 3 && argc <= 6, ESP_ERR_INVALID_ARG);
+            if (pairing_in_progress)
+            {
+                ESP_LOGW(TAG, "Pairing already in progress, please wait.");
+                return ESP_ERR_INVALID_STATE;
+            }
+            pairing_in_progress = true;
+
+            VerifyOrReturnError(argc >= 3 && argc <= 5, ESP_ERR_INVALID_ARG);
             esp_err_t result = ESP_ERR_INVALID_ARG;
 
             esp_matter::controller::pairing_command_callbacks_t cbs = {
@@ -304,12 +314,24 @@ namespace esp_matter
             };
             esp_matter::controller::pairing_command::get_instance().set_callbacks(cbs);
 
+            // ищем в matter_controller_t номер последней ноды . Создаем новый номер для новой ноды.
+            uint64_t nodeId = 0;
+
+            if (g_controller.nodes_count > 0)
+            {
+                nodeId = g_controller.nodes_list[g_controller.nodes_count - 1].node_id + 1;
+            }
+            else
+            {
+                nodeId = 12344321; // chip::kTestDeviceNodeId; // начнем с тестового ID
+            }
+
             if (strncmp(argv[0], "onnetwork", sizeof("onnetwork")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing on network command");
-                VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                uint32_t pincode = string_to_uint32(argv[2]);
+                VerifyOrReturnError(argc == 2, ESP_ERR_INVALID_ARG);
+                //                uint64_t nodeId = string_to_uint64(argv[1]);
+                uint32_t pincode = string_to_uint32(argv[1]);
                 result = controller::pairing_on_network(nodeId, pincode);
 
 #if CONFIG_ENABLE_ESP32_BLE_CONTROLLER
@@ -318,27 +340,48 @@ namespace esp_matter
             {
 
                 ESP_LOGI(TAG, "Pairing over BLE and Wi-Fi command");
-                VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                uint32_t pincode = string_to_uint32(argv[4]);
-                uint16_t disc = string_to_uint16(argv[5]);
+                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                uint32_t pincode = string_to_uint32(argv[3]);
+                uint16_t disc = string_to_uint16(argv[4]);
 
-                result = controller::pairing_ble_wifi(nodeId, pincode, disc, argv[2], argv[3]);
+                result = controller::pairing_ble_wifi(nodeId, pincode, disc, argv[1], argv[2]);
             }
             else if (strncmp(argv[0], "ble-thread", sizeof("ble-thread")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over BLE and Thread command");
-                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
+                VerifyOrReturnError(argc >= 3 && argc <= 5, ESP_ERR_INVALID_ARG);
+
+                // берем из system_settings_t thread.TLVs
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
-                if (!convert_hex_str_to_bytes(argv[2], dataset_tlvs_buf, dataset_tlvs_len))
+                if (sys_settings.thread.TLVs[0] == '\0')
+                {
+                    ESP_LOGE(TAG, "Thread TLVs are not set");
+                    if (!convert_hex_str_to_bytes(argv[1], dataset_tlvs_buf, dataset_tlvs_len))
+                    {
+                        return ESP_ERR_INVALID_ARG;
+                    }
+                }
+                else if (!convert_hex_str_to_bytes(sys_settings.thread.TLVs, dataset_tlvs_buf, dataset_tlvs_len))
                 {
                     return ESP_ERR_INVALID_ARG;
                 }
-                uint64_t node_id = string_to_uint64(argv[1]);
-                uint32_t pincode = string_to_uint32(argv[3]);
-                uint16_t disc = string_to_uint16(argv[4]);
-                result = controller::pairing_ble_thread(node_id, pincode, disc, dataset_tlvs_buf, dataset_tlvs_len);
+                // если  аргументов передано больше 3, то берем их из argv
+                uint32_t pincode;
+                uint16_t disc;
+                if (argc > 3)
+                {
+                    pincode = string_to_uint32(argv[2]);
+                    disc = string_to_uint16(argv[3]);
+                }
+                else
+                {
+                    pincode = string_to_uint32(argv[1]);
+                    disc = string_to_uint16(argv[2]);
+                }
+
+                result = controller::pairing_ble_thread(nodeId, pincode, disc, dataset_tlvs_buf, dataset_tlvs_len);
 #else  // if !CONFIG_ENABLE_ESP32_BLE_CONTROLLER
             }
             else if (strncmp(argv[0], "ble-wifi", sizeof("ble-wifi")) == 0 ||
@@ -351,21 +394,21 @@ namespace esp_matter
             else if (strncmp(argv[0], "code", sizeof("code")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code command");
-                VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *payload = argv[2];
+                VerifyOrReturnError(argc == 2, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *payload = argv[1];
 
                 result = controller::pairing_code(nodeId, payload);
             }
             else if (strncmp(argv[0], "code-thread", sizeof("code-thread")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code and thread command");
-                VerifyOrReturnError(argc == 4, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *payload = argv[3];
+                VerifyOrReturnError(argc == 3, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *payload = argv[2];
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
-                if (!convert_hex_str_to_bytes(argv[2], dataset_tlvs_buf, dataset_tlvs_len))
+                if (!convert_hex_str_to_bytes(argv[1], dataset_tlvs_buf, dataset_tlvs_len))
                 {
                     return ESP_ERR_INVALID_ARG;
                 }
@@ -375,26 +418,26 @@ namespace esp_matter
             else if (strncmp(argv[0], "code-wifi", sizeof("code-wifi")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code and wifi command");
-                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *ssid = argv[2];
-                const char *password = argv[3];
-                const char *payload = argv[4];
+                VerifyOrReturnError(argc == 4, ESP_ERR_INVALID_ARG);
+                // uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *ssid = argv[1];
+                const char *password = argv[2];
+                const char *payload = argv[3];
 
                 result = controller::pairing_code_wifi(nodeId, ssid, password, payload);
             }
             else if (strncmp(argv[0], "code-wifi-thread", sizeof("code-wifi-thread")) == 0)
             {
                 ESP_LOGI(TAG, "Pairing over code, wifi and thread command");
-                VerifyOrReturnError(argc == 6, ESP_ERR_INVALID_ARG);
-                uint64_t nodeId = string_to_uint64(argv[1]);
-                const char *ssid = argv[2];
-                const char *password = argv[3];
-                const char *payload = argv[4];
+                VerifyOrReturnError(argc == 5, ESP_ERR_INVALID_ARG);
+                //  uint64_t nodeId = string_to_uint64(argv[1]);
+                const char *ssid = argv[1];
+                const char *password = argv[2];
+                const char *payload = argv[3];
 
                 uint8_t dataset_tlvs_buf[254];
                 uint8_t dataset_tlvs_len = sizeof(dataset_tlvs_buf);
-                if (!convert_hex_str_to_bytes(argv[5], dataset_tlvs_buf, dataset_tlvs_len))
+                if (!convert_hex_str_to_bytes(argv[4], dataset_tlvs_buf, dataset_tlvs_len))
                 {
                     return ESP_ERR_INVALID_ARG;
                 }
@@ -773,20 +816,30 @@ namespace esp_matter
             }
 
             uint64_t node_id = string_to_uint64(argv[0]);
+            ScopedMemoryBufferWithSize<uint16_t> endpoint_ids;
+            ScopedMemoryBufferWithSize<uint32_t> cluster_ids;
+            ScopedMemoryBufferWithSize<uint32_t> attribute_ids;
+            ESP_RETURN_ON_ERROR(string_to_uint16_array(argv[1], endpoint_ids), TAG, "Failed to parse endpoint IDs");
+            ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[2], cluster_ids), TAG, "Failed to parse cluster IDs");
+            ESP_RETURN_ON_ERROR(string_to_uint32_array(argv[3], attribute_ids), TAG, "Failed to parse attribute IDs");
+
+            size_t attr_count = endpoint_ids.AllocatedSize() * cluster_ids.AllocatedSize() * attribute_ids.AllocatedSize();
             ScopedMemoryBufferWithSize<chip::app::AttributePathParams> attr_paths;
-            size_t attr_count = get_array_size(argv[1]); // Assuming argv[1] contains attribute paths
             attr_paths.Calloc(attr_count);
             if (!attr_paths.Get())
             {
                 return ESP_ERR_NO_MEM;
             }
-
-            for (size_t i = 0; i < attr_count; ++i)
-            {
-                attr_paths[i].mEndpointId = string_to_uint16(argv[1]);  // Parse endpoint ID
-                attr_paths[i].mClusterId = string_to_uint32(argv[2]);   // Parse cluster ID
-                attr_paths[i].mAttributeId = string_to_uint32(argv[3]); // Parse attribute ID
-            }
+            size_t idx = 0;
+            for (size_t e = 0; e < endpoint_ids.AllocatedSize(); ++e)
+                for (size_t c = 0; c < cluster_ids.AllocatedSize(); ++c)
+                    for (size_t a = 0; a < attribute_ids.AllocatedSize(); ++a)
+                    {
+                        attr_paths[idx].mEndpointId = endpoint_ids[e];
+                        attr_paths[idx].mClusterId = cluster_ids[c];
+                        attr_paths[idx].mAttributeId = attribute_ids[a];
+                        ++idx;
+                    }
 
             uint16_t min_interval = string_to_uint16(argv[4]);
             uint16_t max_interval = string_to_uint16(argv[5]);
@@ -798,32 +851,28 @@ namespace esp_matter
             if (!cmd)
             {
                 ESP_LOGE(TAG, "Failed to alloc memory for subscribe_command");
+                return ESP_ERR_NO_MEM;
             }
-            else
+            esp_err_t err = cmd->send_command();
+            if (err != ESP_OK)
             {
-                esp_err_t err = cmd->send_command();
-                if (err != ESP_OK)
-                {
-                    ESP_LOGE(TAG, "Failed to send subscribe command: %s", esp_err_to_name(err));
-                }
-                else
-                {
-                    ESP_LOGI(TAG, "subscribe_command sent successfully");
-                }
-
-                handle_attribute_report(
-                    &g_controller,             // controller
-                    string_to_uint64(argv[0]), // node_id
-                    string_to_uint16(argv[1]), // endpoint_id
-                    string_to_uint32(argv[2]), // cluster_id
-                    string_to_uint32(argv[3]), // attribute_id
-                    nullptr,                   // value
-                    true                       // need_subscribe
-                );
-                // chip::Platform::Delete(cmd);
+                ESP_LOGE(TAG, "Failed to send subscribe command: %s", esp_err_to_name(err));
+                return err;
             }
+            ESP_LOGI(TAG, "subscribe_command sent successfully");
+            // Добавляем атрибут влокальную структуру g_controller
+            handle_attribute_report(
+                &g_controller,             // controller
+                string_to_uint64(argv[0]), // node_id
+                string_to_uint16(argv[1]), // endpoint_id
+                string_to_uint32(argv[2]), // cluster_id
+                string_to_uint32(argv[3]), // attribute_id
+                nullptr,                   // value
+                true                       // need_subscribe
+            );
+            // chip::Platform::Delete(cmd);
 
-            return ESP_OK; // Ensure the function returns a value
+            return ESP_OK;
         }
 
         esp_err_t controller_subscribe_event(int argc, char **argv)

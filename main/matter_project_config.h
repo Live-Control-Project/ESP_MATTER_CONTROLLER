@@ -10,6 +10,6 @@
 #endif // CONFIG_ESP_MATTER_COMMISSIONER_ENABLE
 
 // Number of devices a controller can be simultaneously connected to
-#define CHIP_CONFIG_CONTROLLER_MAX_ACTIVE_DEVICES 8
+#define CHIP_CONFIG_CONTROLLER_MAX_ACTIVE_DEVICES 100
 
 #endif // CONFIG_ESP_MATTER_ENABLE_MATTER_SERVER
