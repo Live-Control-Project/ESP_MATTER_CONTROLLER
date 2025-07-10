@@ -459,16 +459,7 @@ static esp_err_t readBasicInformation(uint64_t node_id)
         // enqueue_attribute_request(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
         // esp_matter::command::controller_request_attribute(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
         schedule_controller_request_attribute(node_id, 0x0000, BASIC_CLUSTER_ID, attr_id, esp_matter::controller::READ_ATTRIBUTE);
-
-        if (i == attr_count - 1)
-        {
-            ESP_LOGI(TAG, "Last attribute read request sent for node %" PRIu64, node_id);
         }
-        else
-        {
-            ESP_LOGI(TAG, "Next attribute read request will be sent after the current one completes");
-        }
-    }
     return ESP_OK;
 }
 

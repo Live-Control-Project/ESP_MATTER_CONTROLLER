@@ -36,7 +36,7 @@
 
 #include <stdio.h>
 #include "cJSON.h"
-
+#include <math.h>
 #include "platform/PlatformManager.h" // Add if not present
 
 extern matter_controller_t g_controller;
@@ -170,11 +170,15 @@ extern "C" void handle_command(cJSON *json, const char *action_type, const char 
             chip::DeviceLayer::PlatformMgr().UnlockChipStack();
         }
         if (strcmp(action_type, "remove-node") == 0)
-        {
-            remove_device(&g_controller, strtoull(argv[0], nullptr, 16));
-        }
-        // Prepare MQTT payload
 
+        {
+            uint64_t node_id = strtoull(argv[0], NULL, 10); // Десятичное число
+                                                            // или, если payload содержит HEX:
+                                                            // uint64_t node_id = strtoull(payload, NULL, 16);
+            result = remove_device(&g_controller, node_id);
+        }
+
+        // Prepare MQTT payload
         if (result != ESP_OK)
         {
             free(input_copy);
@@ -282,16 +286,24 @@ struct ClusterCommandArgs
 static void SendInvokeClusterCommand(intptr_t arg)
 {
     ClusterCommandArgs *args = reinterpret_cast<ClusterCommandArgs *>(arg);
+
+    // Для OnOff cluster (6) и команд 0, 1, 2 не передавать value!
+    const char *cmd_data = args->value;
+    if (args->cluster_id == 6 && (args->attribute_id == 0 || args->attribute_id == 1 || args->attribute_id == 2))
+    {
+        cmd_data = nullptr;
+    }
+
     controller::send_invoke_cluster_command(
         args->node_id,
         static_cast<uint16_t>(args->endpoint_id),
         static_cast<uint32_t>(args->cluster_id),
         args->attribute_id,
-        // args->value, // Pass as string
-        NULL,
-        chip::MakeOptional(1000));
+        cmd_data,
+        chip::NullOptional);
     delete args; // Clean up
 }
+/*
 static void SendWriteClusterCommand(intptr_t arg)
 {
     ClusterCommandArgs *args = reinterpret_cast<ClusterCommandArgs *>(arg);
@@ -303,6 +315,70 @@ static void SendWriteClusterCommand(intptr_t arg)
         args->value, // Pass as string
         chip::MakeOptional(1000));
     delete args; // Clean up
+}
+*/
+// Преобразование RGB в XY (упрощенный метод)
+void rgb_to_xy(uint8_t r, uint8_t g, uint8_t b, uint16_t *x, uint16_t *y)
+{
+    float red = r / 255.0f;
+    float green = g / 255.0f;
+    float blue = b / 255.0f;
+
+    // Гамма-коррекция
+    red = (red > 0.04045f) ? powf((red + 0.055f) / 1.055f, 2.4f) : (red / 12.92f);
+    green = (green > 0.04045f) ? powf((green + 0.055f) / 1.055f, 2.4f) : (green / 12.92f);
+    blue = (blue > 0.04045f) ? powf((blue + 0.055f) / 1.055f, 2.4f) : (blue / 12.92f);
+
+    // Преобразование в XYZ
+    float X = red * 0.4124564f + green * 0.3575761f + blue * 0.1804375f;
+    float Y = red * 0.2126729f + green * 0.7151522f + blue * 0.0721750f;
+    float Z = red * 0.0193339f + green * 0.1191920f + blue * 0.9503041f;
+
+    // Нормализация в xy
+    float sum = X + Y + Z;
+    float x_val = (sum == 0) ? 0.3127f : (X / sum); // fallback к D65
+    float y_val = (sum == 0) ? 0.3290f : (Y / sum);
+
+    // Масштабирование для Zigbee (0–65279)
+    *x = (uint16_t)(x_val * 65279.0f);
+    *y = (uint16_t)(y_val * 65279.0f);
+}
+
+static void SendWriteClusterCommand(intptr_t arg)
+{
+    ClusterCommandArgs *args = reinterpret_cast<ClusterCommandArgs *>(arg);
+
+    chip::Platform::ScopedMemoryBufferWithSize<uint16_t> endpoint_ids;
+    chip::Platform::ScopedMemoryBufferWithSize<uint32_t> cluster_ids;
+    chip::Platform::ScopedMemoryBufferWithSize<uint32_t> attribute_ids;
+
+    endpoint_ids.Alloc(1);
+    cluster_ids.Alloc(1);
+    attribute_ids.Alloc(1);
+
+    if (!endpoint_ids.Get() || !cluster_ids.Get() || !attribute_ids.Get())
+    {
+        ESP_LOGE(TAG, "Failed to allocate memory for attribute write");
+        delete args;
+        return;
+    }
+
+    endpoint_ids[0] = static_cast<uint16_t>(args->endpoint_id);
+    cluster_ids[0] = static_cast<uint32_t>(args->cluster_id);
+    attribute_ids[0] = args->attribute_id;
+
+    // Формируем JSON-объект для значения атрибута: {"0:U8": <value>}
+    char attr_val_json[80];
+    snprintf(attr_val_json, sizeof(attr_val_json), "{\"0:U8\": %s}", args->value);
+
+    esp_matter::controller::send_write_attr_command(
+        args->node_id,
+        endpoint_ids,
+        cluster_ids,
+        attribute_ids,
+        attr_val_json,
+        chip::MakeOptional(1000));
+    delete args;
 }
 
 extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
@@ -324,109 +400,279 @@ extern "C" void handle_mqtt_data(esp_mqtt_event_handle_t event)
 
     //    ESP_LOGI(TAG, "TOPIC=%s", topic);
     //    ESP_LOGI(TAG, "DATA=%s", data);
-
+    cJSON *json = cJSON_Parse(data);
+    if (json == NULL)
+    {
+        ESP_LOGE(TAG, "Invalid JSON received");
+        const char *error_ptr = cJSON_GetErrorPtr();
+        if (error_ptr != NULL)
+        {
+            ESP_LOGE(TAG, "JSON error before: %s", error_ptr);
+        }
+        return;
+    }
     if (strstr(topic, "/td/matter") != NULL)
     {
         ESP_LOGI(TAG, "TOPIC=%s", topic);
         ESP_LOGI(TAG, "DATA=%s", data);
 
-        cJSON *json = cJSON_Parse(data);
-        if (json == NULL)
+        // получаем из топика Node_id и Endpoint_id
+        char *node_id_str = strstr(topic, "/td/matter/") + strlen("/td/matter/");
+        char *endpoint_id_str = strchr(node_id_str, '/');
+        uint64_t endpoint_id = 1;
+        if (endpoint_id_str != NULL)
         {
-            ESP_LOGE(TAG, "Invalid JSON received");
-            const char *error_ptr = cJSON_GetErrorPtr();
-            if (error_ptr != NULL)
-            {
-                ESP_LOGE(TAG, "JSON error before: %s", error_ptr);
-            }
+            *endpoint_id_str = '\0';
+            endpoint_id_str++;
+            endpoint_id = strtoull(endpoint_id_str, NULL, 0);
+        }
+
+        uint64_t node_id = strtoull(node_id_str, NULL, 0);
+        ESP_LOGI(TAG, "Node ID: 0x%" PRIx64 ", Endpoint ID: 0x%" PRIx64, node_id, endpoint_id);
+        // разбираем JSON
+        cJSON *root = cJSON_Parse(data);
+        if (root == NULL)
+        {
+            ESP_LOGE(TAG, "Ошибка парсинга JSON!");
             return;
         }
-        if (strstr(topic, "/td/matter_csa") != NULL)
+
+        cJSON *outer_item = NULL;
+        cJSON_ArrayForEach(outer_item, root)
         {
-            // topic = "esp_matter_server/td/matter_csa/Node_id/Endpoint_id"
-            // получаем из топика Node_id и Endpoint_id
-            ESP_LOGI(TAG, "Processing /td/matter_csa topic");
-            char *node_id_str = strstr(topic, "/td/matter_csa/") + strlen("/td/matter_csa/");
-            char *endpoint_id_str = strchr(node_id_str, '/');
-            if (endpoint_id_str != NULL)
+            // Проверяем, что текущий элемент - это объект с ключом "status"
+            if (outer_item->string && strcmp(outer_item->string, "status") == 0)
             {
-                *endpoint_id_str = '\0';
-                endpoint_id_str++;
-            }
-            else
-            {
-                ESP_LOGE(TAG, "Invalid topic format for /td/matter_csa");
-                cJSON_Delete(json);
-                return;
-            }
-            uint64_t node_id = strtoull(node_id_str, NULL, 0);
-            uint64_t endpoint_id = strtoull(endpoint_id_str, NULL, 0);
-            ESP_LOGI(TAG, "Node ID: 0x%" PRIx64 ", Endpoint ID: 0x%" PRIx64, node_id, endpoint_id);
-
-            // разбираем JSON
-            cJSON *root = cJSON_Parse(data);
-            if (root == NULL)
-            {
-                ESP_LOGE(TAG, "Ошибка парсинга JSON!");
-                return;
-            }
-
-            cJSON *outer_item = NULL;
-            cJSON_ArrayForEach(outer_item, root)
-            {
-                const char *cluster = outer_item->string;
-                uint64_t cluster_id = strtoull(cluster, NULL, 0);
-                ESP_LOGI(TAG, "cluster_id: %s\n", cluster);
-
-                // Перебираем внутренние ключи
-                cJSON *inner_item = NULL;
-                cJSON_ArrayForEach(inner_item, outer_item)
+                // Получаем значение элемента (уже сам outer_item содержит значение)
+                if (cJSON_IsString(outer_item))
                 {
-                    const char *attribute = inner_item->string;
-                    uint64_t attribute_id = strtoull(attribute, NULL, 0);
+                    // Определяем команду на основе значения
+                    ClusterCommandArgs *args = nullptr;
 
-                    ESP_LOGI(TAG, "  attribute_id: %s\n", attribute);
-                    if (cJSON_IsNumber(inner_item))
-                    {
-                        ESP_LOGI(TAG, "Значение int: %d\n", inner_item->valueint);
-                    }
-                    else if (cJSON_IsString(inner_item))
-                    {
-                        ESP_LOGI(TAG, "Значение string: %s\n", inner_item->valuestring);
-                    }
-                    else if (cJSON_IsBool(inner_item))
-                    {
-                        ESP_LOGI(TAG, "Значение bool: %s\n", inner_item->valueint ? "true" : "false");
-                    }
-                    if (cluster_id == 6)
-                    {
-                        auto *args = new ClusterCommandArgs{
-                            node_id,
-                            endpoint_id,
-                            cluster_id,
-                            static_cast<uint32_t>(attribute_id)};
-                        strncpy(args->value, inner_item->valuestring ? inner_item->valuestring : "", sizeof(args->value) - 1);
-                        args->value[sizeof(args->value) - 1] = '\0';
+                    // Приводим значение к нижнему регистру для сравнения
+                    char lower_val[32];
+                    strncpy(lower_val, outer_item->valuestring, sizeof(lower_val) - 1);
+                    lower_val[sizeof(lower_val) - 1] = '\0';
+                    for (char *p = lower_val; *p; ++p)
+                        *p = tolower(*p);
 
-                        chip::DeviceLayer::PlatformMgr().ScheduleWork(SendInvokeClusterCommand, reinterpret_cast<intptr_t>(args));
+                    // Устанавливаем соответствующий аргумент
+                    if (strcmp(lower_val, "on") == 0 || strcmp(lower_val, "1") == 0)
+                    {
+                        args = new ClusterCommandArgs{node_id, endpoint_id, 6, 1};
+                    }
+                    else if (strcmp(lower_val, "off") == 0 || strcmp(lower_val, "0") == 0)
+                    {
+                        args = new ClusterCommandArgs{node_id, endpoint_id, 6, 0};
+                    }
+                    else if (strcmp(lower_val, "toggle") == 0)
+                    {
+                        args = new ClusterCommandArgs{node_id, endpoint_id, 6, 2};
                     }
                     else
                     {
-                        auto *args = new ClusterCommandArgs{
-                            node_id,
-                            endpoint_id,
-                            cluster_id,
-                            static_cast<uint32_t>(attribute_id)};
-                        strncpy(args->value, inner_item->valuestring ? inner_item->valuestring : "", sizeof(args->value) - 1);
-                        args->value[sizeof(args->value) - 1] = '\0';
-
-                        chip::DeviceLayer::PlatformMgr().ScheduleWork(SendWriteClusterCommand, reinterpret_cast<intptr_t>(args));
+                        ESP_LOGE(TAG, "Unknown status value: %s", outer_item->valuestring);
+                        continue;
                     }
+
+                    // Копируем значение
+                    strncpy(args->value, outer_item->valuestring, sizeof(args->value) - 1);
+                    args->value[sizeof(args->value) - 1] = '\0';
+
+                    // Отправляем команду
+                    chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                        SendInvokeClusterCommand,
+                        reinterpret_cast<intptr_t>(args));
                 }
             }
 
-            cJSON_Delete(root);
+            if (outer_item->string && strcmp(outer_item->string, "level") == 0)
+            {
+                if (cJSON_IsNumber(outer_item))
+                {
+                    // 1. Включаем устройство (OnOff cluster, On command)
+                    {
+                        ClusterCommandArgs *on_args = new ClusterCommandArgs{
+                            node_id,
+                            endpoint_id,
+                            6, // OnOff cluster
+                            1  // On command
+                        };
+                        on_args->value[0] = '\0';
+                        chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                            SendInvokeClusterCommand,
+                            reinterpret_cast<intptr_t>(on_args));
+                    }
+
+                    // 2. Формируем JSON для MoveToLevel: {"0:U8": <level>, "1:U16": 0, "2:U8": 0, "3:U8": 0}
+                    char cmd_data[80];
+                    uint8_t level = (uint8_t)outer_item->valueint;
+                    if (level > 254)
+                        level = 254;
+                    snprintf(cmd_data, sizeof(cmd_data),
+                             "{\"0:U8\": %u, \"1:U16\": 0, \"2:U8\": 0, \"3:U8\": 0}", level);
+
+                    ClusterCommandArgs *args = new ClusterCommandArgs{
+                        node_id,
+                        endpoint_id,
+                        8, // LevelControl cluster
+                        0  // MoveToLevel command
+                    };
+                    strncpy(args->value, cmd_data, sizeof(args->value) - 1);
+                    args->value[sizeof(args->value) - 1] = '\0';
+
+                    chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                        SendInvokeClusterCommand,
+                        reinterpret_cast<intptr_t>(args));
+                }
+            }
+            // цвет {"color":[167,255,120]}
+            if (strcmp(outer_item->string, "color") == 0 && cJSON_IsArray(outer_item))
+            {
+
+                // 2. Получаем значения RGB из массива
+                cJSON *r_item = cJSON_GetArrayItem(outer_item, 0);
+                cJSON *g_item = cJSON_GetArrayItem(outer_item, 1);
+                cJSON *b_item = cJSON_GetArrayItem(outer_item, 2);
+
+                if (r_item && g_item && b_item &&
+                    cJSON_IsNumber(r_item) && cJSON_IsNumber(g_item) && cJSON_IsNumber(b_item))
+                {
+                    uint8_t r = (uint8_t)r_item->valueint;
+                    uint8_t g = (uint8_t)g_item->valueint;
+                    uint8_t b = (uint8_t)b_item->valueint;
+                    uint16_t x, y;
+                    // 1. Установка Options=1
+                    {
+                        char options_cmd[20];
+                        snprintf(options_cmd, sizeof(options_cmd), "{\"0:U8\": 1}");
+
+                        ClusterCommandArgs *options_args = new ClusterCommandArgs{
+                            node_id, endpoint_id, 768, 0x10};
+                        strncpy(options_args->value, options_cmd, sizeof(options_args->value) - 1);
+                        chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                            SendInvokeClusterCommand, reinterpret_cast<intptr_t>(options_args));
+
+                        vTaskDelay(100 / portTICK_PERIOD_MS);
+                    }
+
+                    // 2. Установка ColorMode=1 (XY)
+                    {
+                        char mode_cmd[20];
+                        snprintf(mode_cmd, sizeof(mode_cmd), "{\"0:U8\": 1}");
+
+                        ClusterCommandArgs *mode_args = new ClusterCommandArgs{
+                            node_id, endpoint_id, 768, 8};
+                        strncpy(mode_args->value, mode_cmd, sizeof(mode_args->value) - 1);
+                        chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                            SendInvokeClusterCommand, reinterpret_cast<intptr_t>(mode_args));
+
+                        vTaskDelay(200 / portTICK_PERIOD_MS);
+                    }
+
+                    // 3. Отправка цвета
+                    rgb_to_xy(r, g, b, &x, &y);
+
+                    char color_cmd[50];
+                    snprintf(color_cmd, sizeof(color_cmd),
+                             "{\"0:U16\": %u, \"1:U16\": %u, \"2:U16\": 0}", x, y);
+
+                    ClusterCommandArgs *color_args = new ClusterCommandArgs{
+                        node_id, endpoint_id, 768, 7};
+                    strncpy(color_args->value, color_cmd, sizeof(color_args->value) - 1);
+                    chip::DeviceLayer::PlatformMgr().ScheduleWork(
+                        SendInvokeClusterCommand, reinterpret_cast<intptr_t>(color_args));
+                }
+            }
         }
+    }
+
+    // Check for /td/matter_csa topic
+    if (strstr(topic, "/td/matter_csa") != NULL)
+    {
+        // topic = "esp_matter_server/td/matter_csa/Node_id/Endpoint_id"
+        // получаем из топика Node_id и Endpoint_id
+        ESP_LOGI(TAG, "Processing /td/matter_csa topic");
+        char *node_id_str = strstr(topic, "/td/matter_csa/") + strlen("/td/matter_csa/");
+        char *endpoint_id_str = strchr(node_id_str, '/');
+        if (endpoint_id_str != NULL)
+        {
+            *endpoint_id_str = '\0';
+            endpoint_id_str++;
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Invalid topic format for /td/matter_csa");
+            cJSON_Delete(json);
+            return;
+        }
+        uint64_t node_id = strtoull(node_id_str, NULL, 0);
+        uint64_t endpoint_id = strtoull(endpoint_id_str, NULL, 0);
+        ESP_LOGI(TAG, "Node ID: 0x%" PRIx64 ", Endpoint ID: 0x%" PRIx64, node_id, endpoint_id);
+
+        // разбираем JSON
+        cJSON *root = cJSON_Parse(data);
+        if (root == NULL)
+        {
+            ESP_LOGE(TAG, "Ошибка парсинга JSON!");
+            return;
+        }
+
+        cJSON *outer_item = NULL;
+        cJSON_ArrayForEach(outer_item, root)
+        {
+            const char *cluster = outer_item->string;
+            uint64_t cluster_id = strtoull(cluster, NULL, 0);
+            ESP_LOGI(TAG, "cluster_id: %s\n", cluster);
+
+            // Перебираем внутренние ключи
+            cJSON *inner_item = NULL;
+            cJSON_ArrayForEach(inner_item, outer_item)
+            {
+                const char *attribute = inner_item->string;
+                uint64_t attribute_id = strtoull(attribute, NULL, 0);
+
+                ESP_LOGI(TAG, "  attribute_id: %s\n", attribute);
+                if (cJSON_IsNumber(inner_item))
+                {
+                    ESP_LOGI(TAG, "Значение int: %d\n", inner_item->valueint);
+                }
+                else if (cJSON_IsString(inner_item))
+                {
+                    ESP_LOGI(TAG, "Значение string: %s\n", inner_item->valuestring);
+                }
+                else if (cJSON_IsBool(inner_item))
+                {
+                    ESP_LOGI(TAG, "Значение bool: %s\n", inner_item->valueint ? "true" : "false");
+                }
+                if (cluster_id == 6)
+                {
+                    auto *args = new ClusterCommandArgs{
+                        node_id,
+                        endpoint_id,
+                        cluster_id,
+                        static_cast<uint32_t>(attribute_id)};
+                    strncpy(args->value, inner_item->valuestring ? inner_item->valuestring : "", sizeof(args->value) - 1);
+                    args->value[sizeof(args->value) - 1] = '\0';
+
+                    chip::DeviceLayer::PlatformMgr().ScheduleWork(SendInvokeClusterCommand, reinterpret_cast<intptr_t>(args));
+                }
+                else
+                {
+                    auto *args = new ClusterCommandArgs{
+                        node_id,
+                        endpoint_id,
+                        cluster_id,
+                        static_cast<uint32_t>(attribute_id)};
+                    strncpy(args->value, inner_item->valuestring ? inner_item->valuestring : "", sizeof(args->value) - 1);
+                    args->value[sizeof(args->value) - 1] = '\0';
+
+                    chip::DeviceLayer::PlatformMgr().ScheduleWork(SendWriteClusterCommand, reinterpret_cast<intptr_t>(args));
+                }
+            }
+        }
+
+        cJSON_Delete(root);
     }
 
     // Check for Matter command topic
