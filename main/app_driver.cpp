@@ -127,7 +127,7 @@ static void Layer_timer_cb(chip::System::Layer *aLayer, void *appState)
     {
         ESP_LOGE(TAG, "Failed to update device list: %d", err);
     }
-
+    
     matter_ctrl_subscribe_device_state(SUBSCRIBE_LOCAL_DEVICE);
 
     // Перезапускаем таймер
